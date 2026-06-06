@@ -1,0 +1,49 @@
+# Supabase project configuration
+# Documentation: https://supabase.com/docs/guides/cli/config
+
+# A unique identifier for the linked Supabase project (the part before .supabase.co in the URL).
+project_id = "iiucfqmdekrfmaobiaia"
+
+[api]
+# The schemas exposed via the auto-generated REST API.
+# Only public_serving is exposed to API consumers — private is server-side only.
+# This enforces the two-vault security boundary at the API layer.
+enabled = true
+schemas = ["public", "public_serving"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+# Postgres major version. Supabase currently runs 15.
+major_version = 15
+
+[db.pooler]
+# The shared pooler routes connections through PgBouncer.
+enabled = true
+default_pool_size = 20
+max_client_conn = 100
+
+[realtime]
+# Realtime subscriptions are enabled for future live-graph features.
+# Not used yet, but enabled to avoid future migration.
+enabled = true
+
+[storage]
+# Storage is enabled but no buckets defined yet.
+enabled = true
+
+[auth]
+# Auth is enabled for future operator-side authentication.
+# Site URL will be updated when frontend is deployed.
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = []
+jwt_expiry = 3600
+
+[analytics]
+# Analytics on by default for usage insights.
+enabled = true
+
+# Edge functions can be added here later when serverless functions are needed.
+# [functions.dot_atom_query]
+# verify_jwt = true
