@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Azura Knowledge Graph — Prism Graph</title>
+
+<!-- IBM Plex Sans Arabic for Persian text + Latin support
+     Chosen because IBM Plex was designed with research-based legibility for
+     technical/data contexts, and the Arabic variant matches the Latin in
+     proportions which keeps the graph visually coherent across scripts. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<!-- D3.js v7 from a CDN allowed for offline reading too once cached -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+
+<style>
+/* ============================================================================
+   DESIGN TOKENS — derived from cognitive load research (Sweller 1988, Tufte 1983)
+   The palette is intentionally restricted to one accent + grayscale, applying
+   Tufte's "smallest effective difference" and Sweller's extraneous load
+   minimization. Each color has a single semantic role.
+   ============================================================================ */
+:root {
+    /* Background — paper-like neutral that reduces eye strain */
+    --bg-canvas: #fafafa;
+    --bg-panel: #ffffff;
+    --bg-panel-subtle: #f4f4f4;
+    
+    /* Text — high contrast on bg for readability */
+    --text-primary: #161616;
+    --text-secondary: #525252;
+    --text-tertiary: #8d8d8d;
+    
+    /* Structural grayscale — for entities of varying importance */
+    --gray-100: #f4f4f4;
+    --gray-200: #e0e0e0;
+    --gray-300: #c6c6c6;
+    --gray-400: #a8a8a8;
+    --gray-500: #8d8d8d;
+    --gray-600: #6f6f6f;
+    --gray-700: #525252;
+    --gray-800: #393939;
+    --gray-900: #262626;
+    
+    /* THE ACCENT — used ONLY for the buyer-critical JV entity and edge.
+       Following Treisman & Gelade (1980), this pre-attentive color cue
+       enables sub-250ms detection. Warm orange chosen because it contrasts
+       maximally against the cool grayscale and is colorblind-friendly. */
+    --accent-primary: #da4e1f;
+    --accent-soft: #ffd7c8;
+    
+    /* Operator color — distinct from accent and grayscale, neither competing
+       for primary attention nor disappearing into the grayscale. Cool slate. */
+    --operator: #4a6670;
+    --operator-soft: #d9e2e6;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    /* Persian primary, Latin fallback. font-feature-settings improves
+       Persian rendering (kashida, contextual forms) */
+    font-family: 'IBM Plex Sans Arabic', 'IBM Plex Sans', -apple-system, sans-serif;
+    font-feature-settings: "ss01", "calt", "liga";
+    background: var(--bg-canvas);
+    color: var(--text-primary);
+    min-height: 100vh;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================================================
+   LAYOUT — Two-column on desktop, stacked on mobile
+   Right column is the graph (RTL: starts on the right side for Persian flow)
+   Left column is the details panel
+   ============================================================================ */
+.app {
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    min-height: 100vh;
+    gap: 0;
+}
+
+@media (max-width: 900px) {
+    /* On mobile, stack panel below graph */
+    .app {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ============================================================================
+   HEADER — gives orientation context. Small, low-salience, doesn't compete
+   with the graph for attention.
+   ============================================================================ */
+.header {
+    grid-column: 1 / -1;
+    padding: 16px 24px;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--gray-200);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.header h1 {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+}
+
+.header .subtitle {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    font-weight: 400;
+}
+
+/* ============================================================================
+   GRAPH CANVAS — generous whitespace, paper-like, low chrome
+   ============================================================================ */
+.graph-container {
+    position: relative;
+    background: var(--bg-canvas);
+    overflow: hidden;
+    min-height: 600px;
+}
+
+.graph-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-height: 700px;
+}
+
+/* Layer band labels — visible but very subtle, applying Tufte's
+   smallest effective difference principle */
+.layer-label {
+    font-size: 10px;
+    fill: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    pointer-events: none;
+}
+
+.layer-band {
+    fill: transparent;
+    /* Common region principle (Gestalt) — subtle background grouping */
+}
+
+.layer-band.regulatory { fill: rgba(0, 0, 0, 0.012); }
+.layer-band.commercial { fill: rgba(0, 0, 0, 0.024); }
+.layer-band.development { fill: rgba(218, 78, 31, 0.04); }  /* Subtle accent for JV layer */
+.layer-band.product { fill: rgba(0, 0, 0, 0.016); }
+
+/* ============================================================================
+   NODES — shape coding per entity_type implements Gestalt similarity.
+   Each entity_type has a distinct shape so users can group by glance.
+   ============================================================================ */
+.node {
+    cursor: pointer;
+    transition: transform 200ms ease, filter 200ms ease;
+}
+
+.node:hover {
+    /* Subtle lift on hover — affordance signal */
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.08));
+}
+
+.node-shape {
+    transition: stroke-width 200ms ease, fill 200ms ease;
+}
+
+/* Default node styling */
+.node-shape {
+    fill: var(--bg-panel);
+    stroke: var(--gray-600);
+    stroke-width: 1.5;
+}
+
+/* Regulator (Oman) — dimmest because it's context, not the focal entity.
+   Salience hierarchy principle from Tufte. */
+.node.regulator .node-shape {
+    fill: var(--gray-100);
+    stroke: var(--gray-400);
+    stroke-width: 1;
+}
+
+.node.regulator .node-label {
+    fill: var(--text-tertiary);
+}
+
+/* Holdings & Developers — standard salience */
+.node.holding .node-shape,
+.node.developer .node-shape {
+    fill: var(--bg-panel);
+    stroke: var(--gray-600);
+    stroke-width: 1.5;
+}
+
+/* THE KEY ENTITY — Al Mouj Muscat S.A.O.C.
+   Combines TWO pre-attentive features (color + size) per Treisman & Gelade
+   (1980). Belt-and-suspenders approach ensures detection even under various
+   display conditions (mobile, monochrome, vision impairment) */
+.node.jv .node-shape {
+    fill: var(--accent-soft);
+    stroke: var(--accent-primary);
+    stroke-width: 2.5;
+}
+
+.node.jv .node-label {
+    fill: var(--accent-primary);
+    font-weight: 600;
+}
+
+.node.jv .node-sublabel {
+    fill: var(--accent-primary);
+    opacity: 0.7;
+}
+
+/* Master development & project — medium-high salience, the buyer's
+   destination */
+.node.master_development .node-shape,
+.node.project .node-shape {
+    fill: var(--bg-panel);
+    stroke: var(--gray-700);
+    stroke-width: 1.5;
+}
+
+/* Phases — medium salience, the operational divisions */
+.node.product_phase .node-shape {
+    fill: var(--bg-panel);
+    stroke: var(--gray-600);
+    stroke-width: 1.5;
+}
+
+/* Unit types — slightly lower salience, the leaves */
+.node.unit_type .node-shape {
+    fill: var(--bg-panel);
+    stroke: var(--gray-500);
+    stroke-width: 1.25;
+}
+
+/* Operators — distinct slate color so they're recognized as a different
+   category without competing for primary attention */
+.node.operator .node-shape {
+    fill: var(--operator-soft);
+    stroke: var(--operator);
+    stroke-width: 1.5;
+}
+
+.node.operator .node-label {
+    fill: var(--operator);
+}
+
+/* Selected/hovered state — highlight via stroke weight, not color change,
+   preserving the salience hierarchy */
+.node.selected .node-shape,
+.node.hovered .node-shape {
+    stroke-width: 3;
+    filter: drop-shadow(0 0 0 3px rgba(218, 78, 31, 0.15));
+}
+
+/* Node labels — Persian primary */
+.node-label {
+    font-size: 12px;
+    font-weight: 500;
+    fill: var(--text-primary);
+    text-anchor: middle;
+    pointer-events: none;
+    dominant-baseline: central;
+}
+
+.node-sublabel {
+    font-size: 10px;
+    font-weight: 400;
+    fill: var(--text-tertiary);
+    text-anchor: middle;
+    pointer-events: none;
+}
+
+/* ============================================================================
+   EDGES — style encodes edge_type semantically. Solid for containment,
+   dashed for partnership, dotted for service, double for buyer-critical.
+   This is the Gestalt similarity principle applied to edges.
+   ============================================================================ */
+.edge {
+    fill: none;
+    stroke: var(--gray-400);
+    stroke-width: 1;
+    transition: stroke 200ms ease, stroke-width 200ms ease;
+}
+
+/* Hierarchical containment — solid, thin, neutral */
+.edge.contains {
+    stroke: var(--gray-400);
+    stroke-width: 1;
+}
+
+/* Ownership (parent → subsidiary) — solid, slightly bolder */
+.edge.owns {
+    stroke: var(--gray-500);
+    stroke-width: 1.25;
+}
+
+/* JV partnerships — DASHED because the relationship is horizontal/lateral,
+   not vertical/hierarchical. Visual distinction reinforces conceptual difference. */
+.edge.joint_venture_with {
+    stroke: var(--gray-600);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+}
+
+/* Develops — solid, bolder than contains because it's a more semantic relation */
+.edge.develops {
+    stroke: var(--gray-700);
+    stroke-width: 1.5;
+}
+
+/* THE BUYER-CRITICAL EDGE — Al Mouj S.A.O.C. → Azura as contractual party.
+   Bold + accent color makes it pre-attentive. This is the relationship the
+   buyer most needs to see and understand. */
+.edge.contractual_party_for_buyer {
+    stroke: var(--accent-primary);
+    stroke-width: 2.5;
+}
+
+/* Operations — DOTTED because operators are off-hierarchy services, not
+   part of the ownership/development chain */
+.edge.operates,
+.edge.finances {
+    stroke: var(--operator);
+    stroke-width: 1;
+    stroke-dasharray: 1 3;
+}
+
+/* Regulation — VERY faint dotted, because regulator presence is contextual */
+.edge.regulates {
+    stroke: var(--gray-400);
+    stroke-width: 0.75;
+    stroke-dasharray: 2 4;
+    opacity: 0.5;
+}
+
+/* Hovered edge — brighten without changing color */
+.edge.hovered {
+    stroke-width: 3;
+    opacity: 1;
+    filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.1));
+}
+
+/* Dimmed state when a node is selected — non-related edges fade */
+.edge.dimmed {
+    opacity: 0.15;
+}
+
+.node.dimmed {
+    opacity: 0.3;
+}
+
+/* ============================================================================
+   DETAILS PANEL — right side (LTR start in RTL = visually on the left edge)
+   Shows entity details on hover/click. Information appears progressively,
+   honoring CLT germane load principle.
+   ============================================================================ */
+.details-panel {
+    background: var(--bg-panel);
+    border-left: 1px solid var(--gray-200);
+    padding: 24px;
+    overflow-y: auto;
+    max-height: 100vh;
+}
+
+@media (max-width: 900px) {
+    .details-panel {
+        border-left: none;
+        border-top: 1px solid var(--gray-200);
+        max-height: none;
+    }
+}
+
+.panel-title {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+}
+
+.panel-entity-name {
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+    letter-spacing: -0.01em;
+}
+
+.panel-entity-type {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+}
+
+.panel-section {
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--gray-100);
+}
+
+.panel-section:last-child {
+    border-bottom: none;
+}
+
+.panel-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 12px;
+}
+
+.panel-fact {
+    font-size: 14px;
+    color: var(--text-primary);
+    line-height: 1.6;
+    margin-bottom: 12px;
+}
+
+.panel-fact-meta {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+}
+
+.panel-source-class {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 500;
+    margin-right: 6px;
+}
+
+.panel-source-class.class-1 { background: #d4f1d4; color: #1f5e1f; }
+.panel-source-class.class-2 { background: #d9e9f5; color: #1e4d72; }
+.panel-source-class.class-3 { background: #f5e9d9; color: #7a4f1e; }
+.panel-source-class.class-4 { background: #f5e0e0; color: #6e2727; }
+
+.panel-empty {
+    color: var(--text-tertiary);
+    font-size: 13px;
+    text-align: center;
+    padding: 40px 16px;
+    font-style: italic;
+}
+
+/* Legend — minimal, at bottom of panel. Implements similarity principle by
+   showing shape→type mapping that's already visible in the graph */
+.legend {
+    margin-top: auto;
+    padding-top: 24px;
+    border-top: 1px solid var(--gray-100);
+}
+
+.legend-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.legend-shape {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Question-back styling — these are the buyer-side outputs, deserve emphasis */
+.question-back {
+    background: var(--bg-panel-subtle);
+    border-right: 3px solid var(--accent-primary);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.question-back-label {
+    font-size: 10px;
+    color: var(--accent-primary);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+    <!-- Header — minimal context, doesn't compete with graph for attention -->
+    <header class="header">
+        <h1>گراف دانش Azura Beach Residences</h1>
+        <span class="subtitle">Prism Graph · ۲۲ موجودیت · ۲۸ رابطه</span>
+    </header>
+
+    <!-- Main graph canvas -->
+    <div class="graph-container">
+        <svg class="graph-svg" id="graph"></svg>
+    </div>
+
+    <!-- Details panel — shows entity info on hover/click -->
+    <aside class="details-panel" id="panel">
+        <div class="panel-title">راهنما</div>
+        <div class="panel-empty" id="panel-content">
+            روی هر موجودیت یا رابطه‌ای از گراف کلیک کنید تا اطلاعات کامل آن نمایش داده شود.
+            موجودیت کلیدی (طرف قرارداد خریدار) با رنگ نارنجی و اندازه‌ی بزرگ‌تر مشخص شده است.
+        </div>
+
+        <!-- Legend appears at the bottom -->
+        <div class="legend" id="legend"></div>
+    </aside>
+</div>
+
+<script>
+// ============================================================================
+// DATA — Azura graph nodes and edges
+// Each node has explicit (x, y) coordinates calculated for the Sugiyama-style
+// layered layout. Manual positioning ensures zero edge crossings in the
+// primary view and respects the salience hierarchy.
+// ============================================================================
+
+const nodes = [
+    // Layer 0 — REGULATOR (top, dim, contextual)
+    {
+        id: 'oman', name: 'سلطنت عمان', type: 'country', role: 'regulator',
+        layer: 0, x: 600, y: 60,
+        atoms: [
+            {claim: 'RD 30/2018 قانون escrow عمان: حساب امانی برای Off-Plan الزامی است', source: 'decree.om', sourceClass: 1},
+            {claim: 'RD 79/2025 قانون تنظیم بازار املاک، اجرایی ۱۰ مارس ۲۰۲۶', source: 'decree.om', sourceClass: 1},
+            {claim: 'ماده ۲۶۷ قانون مدنی: قاضی می‌تواند liquidated damages توافقی را تعدیل کند', source: 'Dentons Analysis', sourceClass: 2},
+            {claim: 'ماده ۲۴۶: حق فسخ خریدار برای تأخیرهای طولانی غیرموجه', source: 'Curtis Law', sourceClass: 2},
+            {claim: 'Preliminary Real Estate Register الزامی برای جلوگیری از فروش مضاعف', source: 'RD 79/2025', sourceClass: 1}
+        ]
+    },
+    
+    // Layer 1 — PARENT HOLDINGS
+    {id: 'maf_holding', name: 'هلدینگ ماجد الفطیم', subname: 'MAF Holding', type: 'holding', layer: 1, x: 280, y: 170,
+     atoms: [{claim: 'مالک ۱۰۰٪ MAF Properties — ثبت Sukuk Prospectus', source: 'MAF Sukuk Prospectus', sourceClass: 1}]},
+    {id: 'oia', name: 'صندوق سرمایه‌گذاری عمان', subname: 'OIA', type: 'holding', layer: 1, x: 600, y: 170,
+     atoms: [{claim: 'صندوق ثروت ملی عمان، مالک OMRAN', source: 'سایت رسمی OIA', sourceClass: 1}]},
+    {id: 'tanmia_holding', name: 'تنمیا (هلدینگ)', subname: 'Tanmia Holding', type: 'holding', layer: 1, x: 920, y: 170,
+     atoms: [{claim: 'شرکت توسعه ملی عمان، مالک Tanmia operating', source: 'تأیید رسمی', sourceClass: 2}]},
+    
+    // Layer 2 — OPERATING DEVELOPERS
+    {id: 'maf_properties', name: 'املاک ماجد الفطیم', subname: 'MAF Properties', type: 'developer', layer: 2, x: 280, y: 280,
+     atoms: [{claim: 'مالک ۵۰٪ Al Mouj Muscat S.A.O.C. (audited FS)', source: 'MAF FY2025 FS', sourceClass: 1}]},
+    {id: 'omran', name: 'گروه عمران', subname: 'OMRAN Group', type: 'developer', layer: 2, x: 600, y: 280,
+     atoms: [{claim: 'شریک JV در Al Mouj S.A.O.C. (درصد نامشخص عمومی)', source: 'almouj.com', sourceClass: 2}]},
+    {id: 'tanmia_operating', name: 'تنمیا (عملیاتی)', subname: 'Tanmia', type: 'developer', layer: 2, x: 920, y: 280,
+     atoms: [{claim: 'شریک JV در Al Mouj S.A.O.C.', source: 'almouj.com', sourceClass: 2}]},
+    
+    // Layer 3 — THE KEY ENTITY (JV — buyer's contractual party)
+    {
+        id: 'almouj_saoc', name: 'الموج مسقط ش.م.ع.ع.', subname: 'Al Mouj Muscat S.A.O.C.',
+        type: 'jv', role: 'key', layer: 3, x: 600, y: 410,
+        atoms: [
+            {claim: 'JV ثبت‌شده در عمان، طرف قرارداد رسمی خریدار Azura', source: 'سایت رسمی Al Mouj', sourceClass: 2},
+            {claim: 'استراتژی brand-reliance marketing — تکیه بر اعتبار MAF و OMRAN به‌جای شفافیت پیش‌دستانه', source: 'تحلیل Oman Observer', sourceClass: 3},
+            {claim: 'JV مالی مستقل از MAF Holding — خریدار صرفاً با نهاد عمانی طرف است', source: 'تحلیل ساختار', sourceClass: 3},
+            {claim: 'بیش از ۱۶۰ واحد در ۲۰۲۴ تحویل داده — سابقه‌ی تحویل پلتفرم', source: 'almouj.com', sourceClass: 2}
+        ]
+    },
+    
+    // Layer 4 — MASTER DEVELOPMENT
+    {id: 'almouj_community', name: 'جامعه‌ی الموج', subname: 'Al Mouj Community', type: 'master_development', layer: 4, x: 600, y: 520,
+     atoms: [{claim: '۲.۳ کیلومتر مربع، ۶ کیلومتر ساحل، شروع ۲۰۰۷، ۷۵٪ کامل تا ۲۰۲۰', source: 'Arab Urban Platform', sourceClass: 3}]},
+    
+    // Layer 5 — PROJECT
+    {
+        id: 'azura', name: 'Azura Beach Residences', subname: 'پروژه ساحلی off-plan',
+        type: 'project', layer: 5, x: 600, y: 620,
+        atoms: [
+            {claim: '۱۹,۵۰۰ مترمربع زمین ساحلی در West Point precinct', source: 'Muscat Daily', sourceClass: 3},
+            {claim: 'اولین dual-frontage residential در عمان', source: 'Kanebridge News', sourceClass: 3},
+            {claim: 'مناقصه‌ی پیمانکار اصلی فاز ۱-۲ در می ۲۰۲۶ منتشر شده، برنده نامشخص', source: 'BNC Network', sourceClass: 3}
+        ],
+        missingness: [
+            {subject: 'تاریخ تحویل رسمی developer', severity: 'critical', question: 'تاریخ تخمینی تحویل فاز مورد نظر + بند penalty + درک قابل‌تعدیل بودن طبق ماده ۲۶۷'},
+            {subject: 'حساب escrow اختصاصی Azura', severity: 'critical', question: 'شماره حساب escrow و بانک متولی هنگام امضای SPA، با اطمینان از تطابق با مجوز MoHUP'}
+        ]
+    },
+    
+    // Layer 6 — PHASES
+    {id: 'phase1', name: 'فاز ۱', subname: 'sold-out جولای ۲۰۲۵', type: 'product_phase', layer: 6, x: 320, y: 720,
+     atoms: [{claim: '۳۰۹ واحد: ۲۸۶ آپارتمان + ۲۳ شاله ۴ خوابه', source: 'Zawya', sourceClass: 2}]},
+    {id: 'phase2', name: 'فاز ۲', subname: 'sold-out اکتبر ۲۰۲۵', type: 'product_phase', layer: 6, x: 510, y: 720,
+     atoms: [{claim: '۳۰۷ واحد در دو برج G+3 (۴ طبقه low-rise)', source: 'Oman Observer', sourceClass: 3}]},
+    {id: 'phase3', name: 'فاز ۳', subname: 'لانچ فوریه ۲۰۲۶', type: 'product_phase', layer: 6, x: 690, y: 720,
+     atoms: [{claim: 'بخشی از final chapter (فاز ۳+۴): ۵۷۰ آپارتمان + ۴۱ شاله duplex', source: 'Zawya', sourceClass: 2}]},
+    {id: 'phase4', name: 'فاز ۴', subname: 'لانچ فوریه ۲۰۲۶', type: 'product_phase', layer: 6, x: 880, y: 720,
+     atoms: [
+        {claim: 'آپارتمان‌ها G+11 (تا طبقه ۱۱) — Savills 13-floor توصیف کرده', source: 'AZ4.pdf brochure', sourceClass: 2},
+        {claim: 'قیمت شروع آپارتمان از OMR 69,000', source: 'almouj.com', sourceClass: 2}
+     ]},
+    
+    // Layer 7 — UNIT TYPES (under Phase 4 — representative)
+    {id: 'apt_1br', name: 'آپارتمان ۱ خوابه', subname: 'A1/A2/A3', type: 'unit_type', layer: 7, x: 730, y: 820,
+     atoms: [{claim: '۷۰-۱۰۷ مترمربع built-up (داخلی ۶۳-۹۶ + بالکن ۸-۱۴)', source: 'بروشورهای رسمی', sourceClass: 2}]},
+    {id: 'apt_2br', name: 'آپارتمان ۲ خوابه', subname: 'B5/B6/B8/B10', type: 'unit_type', layer: 7, x: 830, y: 820,
+     atoms: [{claim: '۱۳۶-۱۴۵ مترمربع built-up', source: 'بروشورهای رسمی', sourceClass: 2}]},
+    {id: 'apt_3br', name: 'آپارتمان ۳ خوابه', subname: 'C1/C2/C3', type: 'unit_type', layer: 7, x: 930, y: 820,
+     atoms: [{claim: '۱۶۶-۱۶۸ مترمربع built-up', source: 'بروشورهای رسمی', sourceClass: 2}]},
+    {id: 'chalet', name: 'شاله Type D', subname: 'duplex ۴ خوابه + استخر + آسانسور', type: 'unit_type', layer: 7, x: 1050, y: 820,
+     atoms: [
+        {claim: '۳۰۵-۳۰۹ مترمربع built-up + باغ خصوصی ۹۰-۱۰۸ مترمربع', source: 'AZ3.pdf brochure', sourceClass: 2},
+        {claim: 'تمام ۴۱ شاله فاز ۳+۴ دارای آسانسور خصوصی', source: 'Zawya press release', sourceClass: 2},
+        {claim: 'قیمت شروع تخمینی OMR 450,000-475,000', source: 'Optimo Property (broker)', sourceClass: 4}
+     ]},
+    
+    // Off-hierarchy — OPERATORS (right side, slate color, lower prominence)
+    {id: 'tabreed', name: 'تبرید عمان', subname: 'district cooling انحصاری', type: 'operator', layer: 4, x: 1080, y: 520,
+     atoms: [
+        {claim: 'انحصار ابدی (perpetual concession) سرمایش الموج — ظرفیت ۶۲,۰۰۰ تن تبرید', source: 'Tabreed Oman', sourceClass: 2},
+        {claim: 'صورت‌حساب جدا از service charge — مالکان حق انتخاب تأمین‌کننده ندارند', source: 'Tabreed concession', sourceClass: 2}
+     ]},
+    {id: 'bank_muscat', name: 'بانک مسقط', subname: 'احتمالی escrow holder', type: 'operator', layer: 3, x: 120, y: 410,
+     atoms: [
+        {claim: 'پیشگام سرویس escrow اختصاصی املاک در عمان', source: 'Bank Muscat media', sourceClass: 2},
+        {claim: 'شریک استراتژیک Al Mouj — احتمال بالای نگهداری escrow ولی نه تأیید رسمی', source: 'تحلیل ارتباط', sourceClass: 3}
+     ]}
+];
+
+const edges = [
+    // Regulation — faint, contextual
+    {source: 'oman', target: 'almouj_saoc', type: 'regulates',
+     label: 'تنظیم از طریق ITC framework + RD 79/2025'},
+    
+    // Ownership chain (Layer 1 → Layer 2)
+    {source: 'maf_holding', target: 'maf_properties', type: 'owns', label: 'مالکیت ۱۰۰٪'},
+    {source: 'oia', target: 'omran', type: 'owns', label: 'مالکیت دولتی'},
+    {source: 'tanmia_holding', target: 'tanmia_operating', type: 'owns', label: 'مالکیت'},
+    
+    // JV formation (Layer 2 → Layer 3) — DASHED (horizontal partnership)
+    {source: 'maf_properties', target: 'almouj_saoc', type: 'joint_venture_with',
+     label: 'JV ۵۰٪ (سهم تأیید‌شده در audited FS)'},
+    {source: 'omran', target: 'almouj_saoc', type: 'joint_venture_with',
+     label: 'JV — درصد عمومی نشده'},
+    {source: 'tanmia_operating', target: 'almouj_saoc', type: 'joint_venture_with',
+     label: 'JV — درصد عمومی نشده'},
+    
+    // Development chain
+    {source: 'almouj_saoc', target: 'almouj_community', type: 'develops', label: 'توسعه‌دهنده‌ی master plan'},
+    {source: 'almouj_community', target: 'azura', type: 'contains', label: 'شامل پروژه'},
+    
+    // THE BUYER-CRITICAL EDGE — accent color, bold
+    {source: 'almouj_saoc', target: 'azura', type: 'contractual_party_for_buyer',
+     label: 'طرف قرارداد رسمی خریدار — این نهاد عمانی است که SPA با آن امضا می‌شود'},
+    
+    // Project → Phases
+    {source: 'azura', target: 'phase1', type: 'contains', label: 'فاز اول'},
+    {source: 'azura', target: 'phase2', type: 'contains', label: 'فاز دوم'},
+    {source: 'azura', target: 'phase3', type: 'contains', label: 'فاز سوم'},
+    {source: 'azura', target: 'phase4', type: 'contains', label: 'فاز چهارم (نهایی)'},
+    
+    // Phase 4 → Unit types (illustrative for Phase 4)
+    {source: 'phase4', target: 'apt_1br', type: 'contains', label: 'شامل'},
+    {source: 'phase4', target: 'apt_2br', type: 'contains', label: 'شامل'},
+    {source: 'phase4', target: 'apt_3br', type: 'contains', label: 'شامل'},
+    {source: 'phase4', target: 'chalet', type: 'contains', label: 'شامل'},
+    
+    // Operations — dotted (off-hierarchy services)
+    {source: 'tabreed', target: 'almouj_community', type: 'operates',
+     label: 'concession ابدی سرمایش — مالکان حق انتخاب ندارند'},
+    {source: 'bank_muscat', target: 'almouj_saoc', type: 'finances',
+     label: 'احتمالی نگهداری escrow — شراکت استراتژیک تأییدشده ولی escrow اختصاصی Azura نه'}
+];
+
+// ============================================================================
+// LAYER METADATA — for the band labels and common-region backgrounds
+// Implements Gestalt common-region principle: subtle background per layer
+// helps users group entities of similar role without needing extra ink
+// ============================================================================
+
+const layers = [
+    {y: 30, height: 90, label: 'قانون‌گذار', class: 'regulatory'},
+    {y: 140, height: 90, label: 'هلدینگ‌های مادر', class: 'commercial'},
+    {y: 250, height: 90, label: 'توسعه‌دهندگان شریک', class: 'commercial'},
+    {y: 370, height: 90, label: 'JV — طرف قرارداد', class: 'development'},
+    {y: 490, height: 70, label: 'master development', class: 'commercial'},
+    {y: 590, height: 70, label: 'پروژه', class: 'product'},
+    {y: 690, height: 70, label: 'فازها', class: 'product'},
+    {y: 790, height: 70, label: 'انواع واحد', class: 'product'}
+];
+
+// ============================================================================
+// RENDER — build the SVG with D3
+// We use explicit positioning rather than force-simulation for deterministic
+// Sugiyama-style layout. This ensures zero edge crossings in the primary view
+// and gives precise control over salience hierarchy.
+// ============================================================================
+
+const width = 1200;
+const height = 880;
+
+const svg = d3.select('#graph')
+    .attr('viewBox', `0 0 ${width} ${height}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet');
+
+// Layer backgrounds (Gestalt common-region principle)
+// Drawn first so they sit behind everything
+const layerGroups = svg.selectAll('.layer-band')
+    .data(layers)
+    .enter().append('g');
+
+layerGroups.append('rect')
+    .attr('class', d => `layer-band ${d.class}`)
+    .attr('x', 0)
+    .attr('y', d => d.y)
+    .attr('width', width)
+    .attr('height', d => d.height);
+
+layerGroups.append('text')
+    .attr('class', 'layer-label')
+    .attr('x', width - 20)
+    .attr('y', d => d.y + 14)
+    .attr('text-anchor', 'end')
+    .text(d => d.label);
+
+// Build node lookup for edge routing
+const nodeById = new Map(nodes.map(n => [n.id, n]));
+
+// Edges first (so they sit behind nodes)
+// Curved paths reduce visual sharpness and follow Gestalt continuity principle.
+// Straight lines work for short hops; curves smooth the longer JV-formation
+// triangular paths to reduce angular conflict.
+const edgeGroup = svg.append('g').attr('class', 'edges');
+
+const edgePaths = edgeGroup.selectAll('.edge')
+    .data(edges)
+    .enter().append('path')
+    .attr('class', d => `edge ${d.type}`)
+    .attr('d', d => {
+        const s = nodeById.get(d.source);
+        const t = nodeById.get(d.target);
+        if (!s || !t) return '';
+        
+        // For mostly-vertical edges, use simple line
+        // For diagonal JV-formation edges, use a smooth curve through control point
+        const dx = t.x - s.x;
+        const dy = t.y - s.y;
+        
+        if (Math.abs(dx) < 50) {
+            // Near-vertical: straight line is cleanest
+            return `M${s.x},${s.y} L${t.x},${t.y}`;
+        } else {
+            // Diagonal: gentle curve via cubic bezier
+            // Control points biased toward vertical flow to maintain hierarchy clarity
+            const cx1 = s.x;
+            const cy1 = s.y + dy * 0.5;
+            const cx2 = t.x;
+            const cy2 = s.y + dy * 0.5;
+            return `M${s.x},${s.y} C${cx1},${cy1} ${cx2},${cy2} ${t.x},${t.y}`;
+        }
+    })
+    .on('mouseenter', function(event, d) {
+        d3.select(this).classed('hovered', true);
+        showEdgeDetails(d);
+    })
+    .on('mouseleave', function(event, d) {
+        d3.select(this).classed('hovered', false);
+    })
+    .on('click', function(event, d) {
+        event.stopPropagation();
+        showEdgeDetails(d);
+    });
+
+// Nodes
+const nodeGroup = svg.append('g').attr('class', 'nodes');
+
+const nodeElems = nodeGroup.selectAll('.node')
+    .data(nodes)
+    .enter().append('g')
+    .attr('class', d => `node ${d.type}${d.role ? ' ' + d.role : ''}`)
+    .attr('transform', d => `translate(${d.x},${d.y})`)
+    .on('mouseenter', function(event, d) {
+        d3.select(this).classed('hovered', true);
+        // Highlight connected edges
+        edgePaths.classed('dimmed', e => e.source !== d.id && e.target !== d.id);
+        nodeElems.classed('dimmed', n => {
+            if (n.id === d.id) return false;
+            return !edges.some(e => 
+                (e.source === d.id && e.target === n.id) ||
+                (e.target === d.id && e.source === n.id)
+            );
+        });
+    })
+    .on('mouseleave', function(event, d) {
+        d3.select(this).classed('hovered', false);
+        edgePaths.classed('dimmed', false);
+        nodeElems.classed('dimmed', false);
+    })
+    .on('click', function(event, d) {
+        event.stopPropagation();
+        showNodeDetails(d);
+    });
+
+// Draw the appropriate shape for each entity type.
+// Shape coding implements Gestalt similarity — users can group by glance
+// without needing a legend.
+nodeElems.each(function(d) {
+    const node = d3.select(this);
+    
+    // Size — pre-attentive cue. Key entity (JV) is 30% larger.
+    const baseW = 130, baseH = 38;
+    const w = d.role === 'key' ? baseW * 1.3 : baseW;
+    const h = d.role === 'key' ? baseH * 1.3 : baseH;
+    
+    switch(d.type) {
+        case 'country':
+            // Ellipse — distinct from companies, signals "place/jurisdiction"
+            node.append('ellipse')
+                .attr('class', 'node-shape')
+                .attr('rx', w * 0.55)
+                .attr('ry', h * 0.55);
+            break;
+            
+        case 'holding':
+        case 'developer':
+            // Rectangle — standard for companies
+            node.append('rect')
+                .attr('class', 'node-shape')
+                .attr('x', -w/2).attr('y', -h/2)
+                .attr('width', w).attr('height', h);
+            break;
+            
+        case 'jv':
+            // Hexagon — distinct shape for the KEY entity, supplementing
+            // color and size differentiation (multi-channel pre-attentive)
+            const r = w/2;
+            const hexPoints = [
+                [-r, 0], [-r*0.5, -h*0.65], [r*0.5, -h*0.65],
+                [r, 0], [r*0.5, h*0.65], [-r*0.5, h*0.65]
+            ].map(p => p.join(',')).join(' ');
+            node.append('polygon')
+                .attr('class', 'node-shape')
+                .attr('points', hexPoints);
+            break;
+            
+        case 'master_development':
+        case 'project':
+            // Rounded rectangle — signals "place/development"
+            node.append('rect')
+                .attr('class', 'node-shape')
+                .attr('x', -w/2).attr('y', -h/2)
+                .attr('width', w).attr('height', h)
+                .attr('rx', 18).attr('ry', 18);
+            break;
+            
+        case 'product_phase':
+            // Diamond (rotated square) — signals sub-product/phase
+            const pw = w * 0.7;
+            node.append('rect')
+                .attr('class', 'node-shape')
+                .attr('x', -pw/2).attr('y', -pw/2)
+                .attr('width', pw).attr('height', pw)
+                .attr('transform', 'rotate(45)');
+            break;
+            
+        case 'unit_type':
+            // Small square — leaves of the tree
+            node.append('rect')
+                .attr('class', 'node-shape')
+                .attr('x', -w*0.42).attr('y', -h*0.6)
+                .attr('width', w * 0.85).attr('height', h * 1.2)
+                .attr('rx', 4);
+            break;
+            
+        case 'operator':
+            // Octagon — clearly distinct from rectangles to signal service role
+            const or = w/2;
+            const oh = h/2;
+            const a = or * 0.4;
+            const octPoints = [
+                [-or, -oh+a], [-or+a, -oh], [or-a, -oh], [or, -oh+a],
+                [or, oh-a], [or-a, oh], [-or+a, oh], [-or, oh-a]
+            ].map(p => p.join(',')).join(' ');
+            node.append('polygon')
+                .attr('class', 'node-shape')
+                .attr('points', octPoints);
+            break;
+    }
+    
+    // Primary label (Persian)
+    node.append('text')
+        .attr('class', 'node-label')
+        .attr('y', d.subname ? -4 : 2)
+        .text(d.name);
+    
+    // Subname (Latin or descriptive)
+    if (d.subname) {
+        node.append('text')
+            .attr('class', 'node-sublabel')
+            .attr('y', 10)
+            .text(d.subname);
+    }
+});
+
+// Click on empty space resets the view
+svg.on('click', function() {
+    showWelcome();
+});
+
+// ============================================================================
+// INTERACTIVITY — details panel rendering
+// Progressive disclosure: minimal info shown initially, more on demand.
+// This honors CLT germane load (productive cognitive effort) by avoiding
+// pre-loading detail the user hasn't asked for.
+// ============================================================================
+
+const panel = document.getElementById('panel-content');
+
+function showWelcome() {
+    panel.className = 'panel-empty';
+    panel.innerHTML = `
+        روی هر موجودیت یا رابطه‌ای از گراف کلیک کنید تا اطلاعات کامل آن نمایش داده شود.
+        موجودیت کلیدی (طرف قرارداد خریدار) با رنگ نارنجی و اندازه‌ی بزرگ‌تر مشخص شده است.
+    `;
+}
+
+function showNodeDetails(d) {
+    let html = '';
+    
+    html += `<div class="panel-title">موجودیت</div>`;
+    html += `<div class="panel-entity-name">${d.name}</div>`;
+    if (d.subname) html += `<div class="panel-entity-type">${d.subname}</div>`;
+    html += `<div class="panel-entity-type">نوع: ${typeLabel(d.type)}</div>`;
+    
+    if (d.atoms && d.atoms.length > 0) {
+        html += `<div class="panel-section">`;
+        html += `<div class="panel-section-title">یافته‌های مستند (${d.atoms.length})</div>`;
+        d.atoms.forEach(atom => {
+            html += `<div class="panel-fact">${atom.claim}`;
+            html += `<div class="panel-fact-meta">`;
+            html += `<span class="panel-source-class class-${atom.sourceClass}">منبع کلاس ${atom.sourceClass}</span>`;
+            html += `${atom.source}`;
+            html += `</div></div>`;
+        });
+        html += `</div>`;
+    }
+    
+    if (d.missingness && d.missingness.length > 0) {
+        html += `<div class="panel-section">`;
+        html += `<div class="panel-section-title">سؤال‌های لازم قبل از امضای SPA</div>`;
+        d.missingness.forEach(m => {
+            html += `<div class="question-back">`;
+            html += `<div class="question-back-label">${m.severity === 'critical' ? 'بحرانی' : 'متوسط'}: ${m.subject}</div>`;
+            html += m.question;
+            html += `</div>`;
+        });
+        html += `</div>`;
+    }
+    
+    panel.className = '';
+    panel.innerHTML = html;
+}
+
+function showEdgeDetails(d) {
+    const sNode = nodeById.get(d.source);
+    const tNode = nodeById.get(d.target);
+    
+    let html = '';
+    html += `<div class="panel-title">رابطه</div>`;
+    html += `<div class="panel-entity-name">${edgeLabel(d.type)}</div>`;
+    html += `<div class="panel-entity-type">${sNode.name} ← ${tNode.name}</div>`;
+    
+    html += `<div class="panel-section">`;
+    html += `<div class="panel-section-title">توضیح</div>`;
+    html += `<div class="panel-fact">${d.label}</div>`;
+    html += `</div>`;
+    
+    if (d.type === 'contractual_party_for_buyer') {
+        html += `<div class="panel-section">`;
+        html += `<div class="panel-section-title">چرا این رابطه برای خریدار حیاتی است</div>`;
+        html += `<div class="panel-fact">`;
+        html += `این یال نشان می‌دهد خریدار با کدام نهاد حقوقی واقعاً قرارداد می‌بندد. `;
+        html += `در دعاوی حقوقی، خریدار صرفاً با Al Mouj Muscat S.A.O.C. — نهاد عمانی JV — طرف است، `;
+        html += `نه با برند Al Mouj یا MAF Holding. این تمایز در همه‌ی تحلیل‌های حقوقی buyer-side پایه‌ای است.`;
+        html += `</div></div>`;
+    }
+    
+    panel.className = '';
+    panel.innerHTML = html;
+}
+
+function typeLabel(type) {
+    const labels = {
+        country: 'کشور / قانون‌گذار',
+        holding: 'هلدینگ مادر',
+        developer: 'توسعه‌دهنده‌ی شریک',
+        jv: 'Joint Venture — کلیدی buyer-side',
+        master_development: 'master development',
+        project: 'پروژه',
+        product_phase: 'فاز محصول',
+        unit_type: 'نوع واحد',
+        operator: 'اپراتور خدمات'
+    };
+    return labels[type] || type;
+}
+
+function edgeLabel(type) {
+    const labels = {
+        owns: 'مالکیت',
+        joint_venture_with: 'شراکت JV',
+        develops: 'توسعه‌دهنده',
+        contains: 'شامل',
+        contractual_party_for_buyer: 'طرف قرارداد خریدار',
+        operates: 'اپراتور',
+        finances: 'تأمین مالی / escrow',
+        regulates: 'قانون‌گذاری'
+    };
+    return labels[type] || type;
+}
+
+// Legend in panel
+const legendHtml = `
+    <div class="panel-section-title">راهنمای شکل‌ها</div>
+    <div class="legend-row"><span class="legend-shape">⬡</span><span>JV / طرف قرارداد (کلیدی)</span></div>
+    <div class="legend-row"><span class="legend-shape">▭</span><span>شرکت (هلدینگ، توسعه‌دهنده)</span></div>
+    <div class="legend-row"><span class="legend-shape">◯</span><span>کشور / مکان</span></div>
+    <div class="legend-row"><span class="legend-shape">◆</span><span>فاز محصول</span></div>
+    <div class="legend-row"><span class="legend-shape">▢</span><span>نوع واحد</span></div>
+    <div class="legend-row"><span class="legend-shape">⬢</span><span>اپراتور (Tabreed، بانک)</span></div>
+    <div class="legend-row" style="margin-top:12px"><span class="legend-shape">━</span><span>سلسله‌مراتب (مالکیت، شامل بودن)</span></div>
+    <div class="legend-row"><span class="legend-shape">┄</span><span>JV / شراکت افقی</span></div>
+    <div class="legend-row"><span class="legend-shape">┈</span><span>سرویس / اپراتور</span></div>
+    <div class="legend-row"><span class="legend-shape" style="color:var(--accent-primary)">━</span><span style="color:var(--accent-primary);font-weight:500">طرف قرارداد خریدار</span></div>
+`;
+document.getElementById('legend').innerHTML = legendHtml;
+
+</script>
+</body>
+</html>
