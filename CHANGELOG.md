@@ -6,6 +6,19 @@ The format follows the principle that each release represents a meaningful miles
 
 -----
 
+## P2.G6a — Bridge Substrate
+
+Additive Postgres schema delta that the G6b bridge script (SQLite Prism → Postgres Prism) writes into. Migration `supabase/migrations/20260607120000_p2g6a_bridge_substrate.sql`. Structural only — no data inserts, and no existing migration, view, function, RLS policy, or GRANT modified.
+
+- Added **6 `legacy_id TEXT UNIQUE` columns** — one each on `private.entities`, `private.sources`, `private.criteria`, `private.atoms`, `private.missingness`, `private.contradictions` (carries SQLite legacy identifiers for idempotent `ON CONFLICT (legacy_id)` upsert).
+- Added **1 `evidence_quality` column** (typed `TEXT` with CHECK `confirmed | partially_supported | not_established`, plus index `idx_atoms_evidence_quality`) on `private.atoms`.
+- Added **1 `metadata JSONB` column** (default `'{}'::jsonb`) on `private.contradictions`.
+- **Relaxed 1 CHECK constraint** — `sources_source_class_check` on `private.sources` now allows `NULL` (`source_class IS NULL OR source_class BETWEEN 1 AND 4`) to admit SQLite placeholder sources carrying `source_class = none`.
+- Added **4 new operator-side tables** in schema `private`: `source_strategy_registry`, `contradiction_statements`, `question_back_tickets` (with indexes on status, entity, criterion), `research_runs`.
+- **4 RLS deny-by-default activations** — `ROW LEVEL SECURITY` enabled on all four new tables with no policies for `anon`/`authenticated`; readable/writable only by `service_role`. No GRANTs to `anon`/`authenticated`.
+
+-----
+
 ## P2.G1 — Dot Dossier API
 
 - Added `private.verdicts` table (operator verdicts; RLS enabled, deny-by-default for anon/authenticated — written only by service_role).
