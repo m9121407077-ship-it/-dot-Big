@@ -1,29 +1,81 @@
-# Prism Graph — Buyer-Side Knowledge Graph
+# Prism — منشور داده‌ی Dot
 
-This repository holds the schema, migrations, and architecture documentation for **Prism Graph**, the customer-facing knowledge graph that powers buyer-side property intelligence for Persian-speaking buyers of Omani real estate.
+Prism یک data prism است: ابزاری که داده‌ی خام را از منابع متنوع (کاربر، crawl، تحقیق دستی) دریافت می‌کند، آن را normalize، تمیز، و atomize می‌کند، و وقتی محصول مصرف‌کننده‌ی نهایی (Dot) به یک ماده‌ی buyer-side نیاز دارد، Prism از روی اتم‌ها مولکول و از روی مولکول‌ها ماده می‌سازد و آن را با evidence ledger کامل به Dot تحویل می‌دهد.
 
-## What this repo is
+## جریان کاری اصلی
 
-This is the source of truth for the Postgres database hosted on Supabase (project `iiucfqmdekrfmaobiaia.supabase.co`, region eu-central-1 / Frankfurt). Every change to the database — adding a new table, loading a new project's evidence atoms, modifying a criterion — happens by writing a new migration file in `supabase/migrations/`, committing it to the `main` branch, and letting Supabase's GitHub integration automatically apply it to the database.
+ذات Prism در یک workflow چهار-مرحله‌ای زندگی می‌کند:
 
-The architecture is documented in `docs/architecture.md`. The canonical reference for the first vertical slice (Azura Beach Residences) is in `docs/azura_master_reference.md`. Verification queries that test the schema after each migration are in `docs/verification_queries.sql`.
+داده‌ی خام از منابع متنوع وارد Prism می‌شود. این داده می‌تواند از کاربر دستی بیاید، از crawl خودکار وب، یا از تحقیق ساختاریافته با AI search engines. Prism این داده را normalize، تمیز، و atomize می‌کند تا هر fact مستقل به‌عنوان یک atom با provenance کامل (منبع، کلاس منبع، valid_from، content_hash) ثبت شود.
 
-## What this repo is NOT
+اتم‌ها در ساختار خودشان در پایگاه می‌نشینند. هر atom به یک entity مشخص متعلق است و می‌تواند به یک criterion مشخص ارجاع داشته باشد. اتم‌ها bitemporal و append-only هستند — یعنی هرگز update یا delete نمی‌شوند، تنها supersede می‌شوند، که تاریخ کامل هر fact حفظ می‌شود.
 
-This repo is intentionally separate from `dot-internal-decision-pack`, the audit-grade research substrate that holds the original SQLite content-addressed atom store with Frictionless contracts. That repo is governed by its own CLAUDE.md locked rules and serves a different purpose: immutable provenance-rich evidence research, not consumer-facing serving infrastructure. Eventually, a controlled one-way bridge will sync curated data from `dot-internal-decision-pack` into Prism Graph, with the founder controlling what crosses the boundary. Until then, these two systems remain operationally independent.
+وقتی Dot برای پاسخ به یک نیاز buyer یک ماده درخواست می‌کند، Prism از روی اتم‌ها مولکول می‌سازد. مولکول‌ها computed views هستند که چندین atom مرتبط با یک entity و یک criterion را با هم ترکیب می‌کنند، با recency awareness و source class weighting. این کار از طریق view `public_serving.molecules` به‌صورت خودکار انجام می‌شود.
 
-## How to deploy changes
+از روی مولکول‌ها، Prism مواد (materials) را synthesize می‌کند. مواد، synthesisهای روایی buyer-relevant هستند که چندین مولکول را در یک narrative قابل‌مصرف توسط Dot ترکیب می‌کنند. هر ماده با evidence ledger همراه است — یعنی هر claim در ماده به atom منبع آن قابل‌ردیابی است. این ledger در dossierهای پروژه قابل‌مشاهده است.
 
-Every file in `supabase/migrations/` follows the naming convention `<timestamp>_<descriptive_name>.sql`. The timestamps are 14-digit `YYYYMMDDHHMMSS` format and they determine the order in which migrations run. Once a migration file is committed to `main` and pushed to GitHub, Supabase's GitHub integration automatically applies it to the production database. There is no manual deploy step.
+ماده‌ی نهایی به همراه ledger به Dot تحویل می‌شود. Dot می‌تواند این ماده را به presentation buyer-facing تبدیل کند، توصیه بسازد، یا با مولفه‌های دیگر ترکیب کند.
 
-Each migration must be idempotent enough that running it twice produces the same end state, or use `IF NOT EXISTS` clauses generously. Never modify a migration file after it has been merged to `main` — instead, write a new migration that adjusts the state.
+## این repo
 
-## How to add a new project (after Azura)
+این repository بخش substrate Prism روی Postgres را در خود نگه می‌دارد. این substrate روی Supabase اجرا می‌شود (پروژه `iiucfqmdekrfmaobiaia.supabase.co`، منطقه `eu-central-1` در فرانکفورت). اجزای اصلی:
 
-When Azura is fully validated and the green light is given to expand, adding a new project (Hawana Lagoons, AIDA, Yiti) is a mechanical exercise. Write a new migration file like `20260620000000_load_hawana_lagoons.sql` that inserts the project's sources, entities, edges, atoms, contradictions, and missingness records following the exact pattern shown in `20260606000100_load_azura.sql`. The schema does not change; only data is added.
+دو schema جدا: `private` که vault تحقیق است و server-side only، و `public_serving` که vault سرویس‌دهی API است و read-only برای consumerها. این تفکیک دو-خزانه‌ای مرز امنیتی وجودی Prism است که از scrape مستقیم اتم‌های خام جلوگیری می‌کند.
 
-The hard part for each new project is the research — collecting atoms with proper source classification, mapping the JV graph, and running the twelve-rule anti-bias audit. The repo step is mechanical execution.
+شش جدول هسته در private: `entities` (موجودیت‌های گراف)، `edges` (روابط)، `atoms` (factها با provenance)، `sources` (منابع)، `criteria` (معیارهای evaluation)، `criteria_applicability` (منطق شرطی فعال‌بودن معیارها بسته به project status).
 
-## Status
+دو جدول کمکی: `contradictions` (registry تناقض‌ها با status حل) و `missingness` (registry شکاف‌ها با context و question-back).
 
-First vertical slice: Azura Beach Residences. Twenty-two entities, twenty-eight edges, fifty-five atoms across L0 (Oman jurisdiction), L1 (Al Mouj JV structure), L2 (project), and L2.5 (unit types). Two open critical missingness items (project-specific escrow account, developer delivery date commitment) — both documented with full context and buyer-side question-backs.
+دو view در `public_serving`: `molecules` (computed view چند-atom) و `project_status` و `entity_parents` (helper views برای traversal گراف).
+
+extensions فعال: `pgvector` برای semantic search توسط AI agents آینده، `uuid-ossp` و `pgcrypto` برای ID generation و content hashing.
+
+helper function: `insert_atom_with_supersession` که supersession atomها را به‌صورت atomic مدیریت می‌کند.
+
+## features اضافی Prism
+
+علاوه بر هسته‌ی atom-molecule-material، Prism چند feature اضافی دارد که هر کدام یک facet متفاوت از داده را نمایش می‌دهد. گراف بصری (در `docs/azura_graph_v2.html`) رابطه‌های بین موجودیت‌ها را به‌صورت تعاملی نشان می‌دهد، طراحی‌شده بر اساس اصول علوم شناختی بصری (مستند در `docs/g7_research_brief.md` و `docs/g7_design_rationale.md`). semantic search از طریق pgvector به AI agents اجازه می‌دهد روی هر سه لایه (atoms، molecules، materials) جستجوی معنایی انجام دهند. registry تناقض‌ها و missingness‌ها به اپراتور اجازه می‌دهد بفهمد چه چیزی می‌دانیم، چه چیزی نمی‌دانیم، و چه سؤالات‌ی باید پرسیده شود. این‌ها همگی **features Prism هستند، نه خود Prism** — Prism حتی بدون این features، با همان workflow بنیادی atom-molecule-material، یک محصول کامل است.
+
+## رابطه با ecosystem Dot
+
+Prism در ecosystem Dot سه نقش متمایز را پشتیبانی می‌کند. **Prism** خودش منشور داده است که اپراتورهای داخل Dot روی آن کار می‌کنند تا داده ready شود برای محصولات دیگر. **Dot** محصول buyer-side است که materials را از Prism مصرف می‌کند و توصیه برای خریدار می‌سازد. **Lens** محصول user-side (آینده) خواهد بود که نیاز و ظرفیت کاربر را می‌گیرد و به Dot منتقل می‌کند تا توصیه متناسب ساخته شود.
+
+علاوه بر این، یک Prism موازی روی SQLite در repo `dot-internal-decision-pack` وجود دارد که L0 (چارچوب عمان) و L1 (Al Mouj و سایر developers) atomهای deep research را به‌عنوان source of truth audit-grade نگه می‌دارد. در حال حاضر این دو Prism (SQLite قدیمی + Postgres جدید) با hand-curated mirror references به یکدیگر اشاره می‌کنند، نه با sync خودکار. ساخت یک bridge کنترل‌شده برای sync پایدار در نقشه‌ی راه نزدیک است.
+
+## وضعیت
+
+این repo نقطه‌ی پایانی Phase 1 یعنی **Azura vertical slice** است. ۹ گیت از مسیر چراغ سبز قفل‌شده پر شده:
+
+G1 (Data Hardening): ۵۵ atom در پنج سطح با full provenance.
+G2 (External Research): دو دور تحقیق با Grok و Gemini.
+G3 (Graph Validation): ۲۲ entity و ۲۸ edge با validation کامل.
+G4 (Anti-Bias Audit): ۱۲ از ۱۲ قاعده pass.
+G5 (Dossier Perfection): پرونده‌ی کامل operator-facing Azura.
+G6 (Schema Implementation): ۳ migration روی Supabase production.
+G7 (Visual Cognition Design): research brief + prototype + rationale.
+G8 (Protocol Documentation): راهنمای مکانیکی اضافه‌کردن پروژه.
+G9 (Operator Green Light): تأیید operator (Mr. H).
+
+## نقشه‌ی راه بعد
+
+پس از این release، چهار خط کاری در صف قرار دارد:
+
+اولاً، اتصال PWA Lovable به API Postgres برای نمایش داده‌ی Azura — این کار شامل تعریف API contract بین Prism و PWA، اتصال Lovable به `public_serving` schema، و رندر داده‌ی واقعی Azura به‌جای dummy data است.
+
+دوماً، تبدیل PWA از حالت decorative mockup فعلی به یک application دینامیک و responsive — این یعنی layout responsive روی موبایل و دسکتاپ، navigation داده‌محور، و real-time updateها از Prism.
+
+سوماً، ساخت bridge L0/L1 از Prism SQLite به Prism Postgres برای حذف mirror state و رسیدن به single source of truth.
+
+چهارماً، اضافه‌کردن پروژه‌ی دوم (Hawana Lagoons، AIDA، یا Yiti) با استفاده از پروتکل مکانیکی G8.
+
+## فایل‌های مهم
+
+برای deep dive در معماری، `docs/architecture.md` را ببینید. برای داده‌ی Azura، `docs/azura_master_reference.md` (رجیستری ساختاری) و `docs/azura_dossier.md` (synthesis روایی buyer-side). برای روش‌شناسی طراحی گراف، `docs/g7_research_brief.md` و `docs/g7_design_rationale.md`. برای اضافه‌کردن پروژه‌های آینده، `docs/g8_protocol_documentation.md`. برای تست‌های validation، `docs/verification_queries.sql`.
+
+برای دیدن گراف Azura در مرورگر، فایل `docs/azura_graph_v2.html` را در Safari یا Chrome باز کنید (هیچ server لازم نیست).
+
+## مدیریت migrationها
+
+هر تغییری در database (اضافه‌کردن جدول، اضافه‌کردن پروژه‌ی جدید، اصلاح criteria) به‌صورت یک migration جدید در `supabase/migrations/` نوشته می‌شود، با فرمت نام `YYYYMMDDHHMMSS_<descriptive_name>.sql` و push به branch `main`. Supabase GitHub integration به‌صورت خودکار migrationها را به ترتیب timestamp روی production اعمال می‌کند.
+
+هیچ migration پس از merge به main نباید تغییر کند — برای اصلاح state، یک migration جدید نوشته می‌شود که supersede می‌کند.

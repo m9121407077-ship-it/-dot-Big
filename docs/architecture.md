@@ -1,4 +1,4 @@
-> Note: 'Dot Big' was the working name during architecture design. The canonical name is now 'Prism Graph' (Postgres edition of Prism, distinct from the existing SQLite Prism in dot-internal-decision-pack).
+> Note: 'Dot Big' was the working name during architecture design. The canonical name is now 'Prism on Postgres' (Postgres edition of Prism, distinct from the existing SQLite Prism in dot-internal-decision-pack).
 
 # تصمیم نهایی معماری Dot — سند ثبت تصمیم (ADR)
 **تاریخ:** ۱۷ خرداد ۱۴۰۵

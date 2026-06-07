@@ -1,11 +1,11 @@
-# G8 Protocol Documentation — اضافه‌کردن پروژه‌ی جدید به Prism Graph
+# G8 Protocol Documentation — اضافه‌کردن پروژه‌ی جدید به Prism
 
 **نسخه:** ۱.۰
 **تاریخ:** ۶ ژوئن ۲۰۲۶
 **مخاطب:** اپراتورها، ادمین‌ها، عامل‌های هوشمند (Claude Code و موارد مشابه)
 **هدف:** تبدیل فرایند خلاقانه‌ی اضافه‌کردن یک پروژه به یک execution مکانیکی قابل‌تکرار
 
-این سند نقشه‌ی راه قطعی است برای اضافه‌کردن هر پروژه‌ی جدید (مثل Hawana Lagoons، AIDA، Yiti، یا هر پروژه‌ای از L1 portfolio) به Prism Graph. اگر مراحل این سند با ترتیب و دقت دنبال شوند، نتیجه یک migration درست، با FK integrity، با provenance کامل، با ضدسوگیری validated، و قابل‌اعمال خودکار توسط Supabase خواهد بود. این سند تضمین می‌کند که هیچ پروژه‌ی بعدی نیاز به «تصمیمات معماری مجدد» نداشته باشد.
+این سند نقشه‌ی راه قطعی است برای اضافه‌کردن هر پروژه‌ی جدید (مثل Hawana Lagoons، AIDA، Yiti، یا هر پروژه‌ای از L1 portfolio) به Prism. اگر مراحل این سند با ترتیب و دقت دنبال شوند، نتیجه یک migration درست، با FK integrity، با provenance کامل، با ضدسوگیری validated، و قابل‌اعمال خودکار توسط Supabase خواهد بود. این سند تضمین می‌کند که هیچ پروژه‌ی بعدی نیاز به «تصمیمات معماری مجدد» نداشته باشد.
 
 -----
 
@@ -13,7 +13,7 @@
 
 قبل از اینکه هیچ خطی کد بنویسی یا هیچ فایلی در repo بسازی، باید چهار گیت تحقیقاتی G1 تا G4 از مسیر چراغ سبز قفل‌شده برای پروژه‌ی جدید pass شده باشد. این پیش‌نیازها مذاکره‌پذیر نیستند چون بدون آن‌ها، اتم‌هایی که در پایگاه می‌نشینند بی‌اعتبار خواهند بود.
 
-**G1 یعنی Data Hardening**. باید برای پروژه حداقل ۱۰ اتم پایه استخراج شده باشد، هر اتم با ID منحصر، با source شناسایی‌شده، با source class تخصیص‌یافته، و با level مشخص (framework یا platform_level یا project_specific یا analytical_insight). این کار به‌صورت دستی از طریق مطالعه‌ی منابع رسمی developer، press releases، مستندات حقوقی، و third-party media انجام می‌شود. هیچ اتمی بدون منبع قابل‌ثبت نیست.
+**G1 یعنی Data Hardening**. باید برای پروژه حداقل ۲۰ اتم پایه استخراج شده باشد، هر اتم با ID منحصر، با source شناسایی‌شده، با source class تخصیص‌یافته، و با level مشخص (framework یا platform_level یا project_specific یا analytical_insight). این کار به‌صورت دستی از طریق مطالعه‌ی منابع رسمی developer، press releases، مستندات حقوقی، و third-party media انجام می‌شود. هیچ اتمی بدون منبع قابل‌ثبت نیست.
 
 **G2 یعنی External Research**. حداقل یک دور تحقیق با AI search engines (Grok، Gemini، Perplexity یا مشابه) برای پر کردن gapهای اولیه و کشف missingness بحرانی انجام شده باشد. این دور باید پاسخ به سؤال‌های کلیدی buyer-side را بدهد: «طرف قرارداد خریدار کیست؟»، «escrow اختصاصی کجاست؟»، «تاریخ تحویل رسمی چیست؟»، «framework حقوقی چه چیزی را الزام می‌کند؟». نتایج دور تحقیق در یک سند جدا (مثل `<project>_research_round1.md`) ثبت شده باشد.
 
@@ -51,7 +51,7 @@
 
 برای **entities** فرمت `22222222-<type-code>-0000-0000-<sequence>` است، که در آن type-code یک کد دو رقمی است که entity_type را نشان می‌دهد. کدها این‌ها هستند: 0000 برای country، 1100 برای parent holdings، 1200 برای operating developers، 1300 برای JV entities، 2000 برای master developments، 2100 برای projects، 2110 برای product_phases، 2120 برای unit_types، و 4000 برای operators. sequence درون هر type‌code از 1 شروع می‌شود.
 
-برای **criteria** فرمت `33333333-<section-code>-0000-0000-<sequence>` است، با section-codeها: 1000 برای gate_board، 2000 برای score_core، 3000 برای descriptive. criteriaها در migration اول تعریف شدند و معمولاً برای پروژه‌های جدید نیازی به اضافه‌کردن criteria جدید نیست — همان ۱۷ معیار موجود کافی است. اگر روزی یک معیار جدید نیاز بود، در migration جداگانه با pattern بالا اضافه می‌شود.
+برای **criteria** فرمت `33333333-<section-code>-0000-0000-<sequence>` است، با section-codeها: 1000 برای gate_board، 2000 برای score_core، 2500 برای developer_modifier، 3000 برای descriptive، 4000 برای escalation. criteriaها در migration اول تعریف شدند و معمولاً برای پروژه‌های جدید نیازی به اضافه‌کردن criteria جدید نیست — همان ۱۷ معیار موجود کافی است. اگر روزی یک معیار جدید نیاز بود، در migration جداگانه با pattern بالا اضافه می‌شود.
 
 برای **atoms** فرمت `44444444-<level-code>-0000-0000-<sequence>` است، با level-codeها: 0001 برای L0 framework، 1000 برای L1 platform، 2000 برای L2 project، 2500 برای L2.5 unit، 4000 برای L4 operator. sequence معمولاً با شماره‌ی اتم در رجیستری master reference پروژه match می‌شود.
 
@@ -89,7 +89,7 @@
 
 **Validation سوم، 12-rule anti-bias audit**. هر اتم پروژه باید با دوازده قاعده‌ی anti-bias چک شود. مهم‌ترین قواعد برای هر پروژه‌ی جدید این‌ها هستند: آیا اتم Product-Specific است یا framework؟ آیا level درست تخصیص یافته؟ آیا یک اتم platform-level به‌اشتباه به‌عنوان project-specific labeled شده؟ آیا یک claim افشایی به‌اشتباه به‌عنوان امتیاز خوانده شده؟ این audit با چک‌لیست استاندارد L2 pilot pass می‌شود.
 
-**Validation چهارم، PrPersian readability check**. متن claimها به Persian روان، بدون errorهای املایی، با پشتیبانی ZWNJ (نیم‌فاصله) درست. این validation به‌خاطر مخاطب نهایی است که در PWA Lovable متن را می‌بیند یا اپراتوری که در dashboard atomها را review می‌کند. PostgreSQL متن Persian را به‌درستی encode می‌کند، ولی اپراتور باید مطمئن شود متن قابل‌خواندن است.
+**Validation چهارم، Persian readability check**. متن claimها به Persian روان، بدون errorهای املایی، با پشتیبانی ZWNJ (نیم‌فاصله) درست. این validation به‌خاطر مخاطب نهایی است که در PWA Lovable متن را می‌بیند یا اپراتوری که در dashboard atomها را review می‌کند. PostgreSQL متن Persian را به‌درستی encode می‌کند، ولی اپراتور باید مطمئن شود متن قابل‌خواندن است.
 
 -----
 
@@ -113,7 +113,7 @@ Claude Code فایل را push می‌کند، Supabase auto-applies آن را،
 
 ## بخش هشتم — مثال کامل (Quick-Start)
 
-برای روشن‌تر کردن، اینجا یک skeleton SQL برای اضافه‌کردن یک پروژه‌ی فرضی به نام “Project X” آورده می‌شود. این skeleton الگوی پیاده‌سازی واقعی است که در هر پروژه‌ی جدید pattern‌متچ می‌شود.
+برای روشن‌تر کردن، اینجا یک skeleton SQL برای اضافه‌کردن یک پروژه‌ی فرضی به نام “Project X” آورده می‌شود. این skeleton الگوی پیاده‌سازی واقعی است که در هر پروژه‌ی جدید pattern-match می‌شود.
 
 ```sql
 BEGIN;
@@ -177,13 +177,13 @@ COMMIT;
 
 این چک‌لیست شامل: آیا تمام ۱۰ گام بخش چهارم کامل اجرا شد؟ آیا چهار validation بخش پنجم pass شد؟ آیا commit و push بدون تغییر در migrationهای موجود انجام شد؟ آیا Supabase migration را اعمال کرد و در dashboard دیده می‌شود؟ آیا master reference در `docs/` با اسم درست نشست؟ آیا verification queries که در `docs/verification_queries.sql` هستند نتایج مورد انتظار می‌دهند برای پروژه‌ی جدید؟ آیا گراف visualization به‌روز شد (در migration بعدی) تا پروژه‌ی جدید را نشان دهد؟
 
-اگر همه‌ی این موارد pass، پروژه به‌صورت رسمی در Prism Graph live است. در غیر این صورت، هر کدام که نقص دارد ابتدا رفع شود.
+اگر همه‌ی این موارد pass، پروژه به‌صورت رسمی در Prism live است. در غیر این صورت، هر کدام که نقص دارد ابتدا رفع شود.
 
 -----
 
 ## ضمیمه — Catalog مرجع
 
-برای راحتی، یک مرجع سریع از anumerations که در schema تثبیت شده‌اند.
+برای راحتی، یک مرجع سریع از enumerations که در schema تثبیت شده‌اند.
 
 **entity_type** (۹ مقدار): country، holding، developer، jv، master_development، project، product_phase، unit_type، operator.
 
@@ -207,4 +207,4 @@ COMMIT;
 
 ## ختام
 
-این سند، طبق هدف اولیه‌ی گیت G8، فرایند خلاقانه‌ی اضافه‌کردن پروژه را به یک execution مکانیکی تبدیل می‌کند. هر کسی که این سند را دارد و research output یک پروژه‌ی جدید را در دست دارد، می‌تواند migration کامل و سازگار با معماری Prism Graph بنویسد. این یعنی scale‌پذیری: اضافه‌کردن پروژه‌ی دوم، سوم، و چهلم نباید زمان بیشتری از زمان تحقیق ببرد. تصمیمات معماری یک بار گرفته شده، حالا فقط داده به این chassis ریخته می‌شود.
+این سند، طبق هدف اولیه‌ی گیت G8، فرایند خلاقانه‌ی اضافه‌کردن پروژه را به یک execution مکانیکی تبدیل می‌کند. هر کسی که این سند را دارد و research output یک پروژه‌ی جدید را در دست دارد، می‌تواند migration کامل و سازگار با معماری Prism بنویسد. این یعنی scale‌پذیری: اضافه‌کردن پروژه‌ی دوم، سوم، و چهلم نباید زمان بیشتری از زمان تحقیق ببرد. تصمیمات معماری یک بار گرفته شده، حالا فقط داده به این chassis ریخته می‌شود.
