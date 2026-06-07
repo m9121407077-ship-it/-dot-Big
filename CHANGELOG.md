@@ -6,6 +6,17 @@ The format follows the principle that each release represents a meaningful miles
 
 -----
 
+## P2.G6a amendment — Nullability relaxations
+
+Minimal additive amendment migration `supabase/migrations/20260607130000_p2g6a_amend_nullability.sql`, closing two NOT NULL gaps the G6b dry-run surfaced. Strictly relaxes existing constraints (narrows nothing); no new tables, columns, indexes, RLS, views, functions, or grants. Four columns relaxed to allow NULL:
+
+- `private.sources.source_class` (permits placeholder sources with `source_class='none'` → NULL)
+- `private.atoms.source_class` (permits atoms tied to the `SRC_PRISM_NO_PUBLIC_EVIDENCE_FOUND` placeholder)
+- `private.contradictions.atom_a_id` (permits contradictions with fewer than two related atoms)
+- `private.contradictions.atom_b_id` (permits contradictions with fewer than two related atoms)
+
+-----
+
 ## P2.G6a — Bridge Substrate
 
 Additive Postgres schema delta that the G6b bridge script (SQLite Prism → Postgres Prism) writes into. Migration `supabase/migrations/20260607120000_p2g6a_bridge_substrate.sql`. Structural only — no data inserts, and no existing migration, view, function, RLS policy, or GRANT modified.
