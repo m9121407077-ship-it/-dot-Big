@@ -6,6 +6,17 @@ The format follows the principle that each release represents a meaningful miles
 
 -----
 
+## P2.G2a — Operator Cockpit API
+
+Additive migration `supabase/migrations/20260608000000_p2g2_cockpit_api.sql` adding the read-only operator-side API surface for the Cockpit PWA. No existing migration, view, function, RLS policy, or grant modified; G1 `get_project_dossier` byte-identical; no writes to evidence data (write-back is G4).
+
+- `private.user_roles` (operator/admin; RLS deny-by-default; SELECT to `supabase_auth_admin` only).
+- `private.custom_access_token_hook(jsonb)` — injects the `role` claim into the JWT (EXECUTE to `supabase_auth_admin`; revoked from anon/authenticated/public). Registered manually in the Supabase Dashboard (G2b).
+- 8 flat `cockpit_*` views in `public_serving` (`entities`, `criteria`, `sources`, `atoms`, `missingness`, `tickets`, `contradictions`, `source_strategies`) — operator RBAC inline via `auth.jwt() ->> 'role' = 'operator'`; SELECT to `authenticated` only, and explicitly **revoked from `anon`** to override migration 001's inherited default privileges (design §7 / principle 5).
+- 2 `public_serving` RPCs — `cockpit_dashboard_summary()` and `cockpit_project_dossier(uuid)` — `SECURITY DEFINER`, `SET search_path=''`, RBAC-gated, EXECUTE to `authenticated` only.
+
+-----
+
 ## P2.G6a amendment — Nullability relaxations
 
 Minimal additive amendment migration `supabase/migrations/20260607130000_p2g6a_amend_nullability.sql`, closing two NOT NULL gaps the G6b dry-run surfaced. Strictly relaxes existing constraints (narrows nothing); no new tables, columns, indexes, RLS, views, functions, or grants. Four columns relaxed to allow NULL:
