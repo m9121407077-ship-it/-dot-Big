@@ -165,13 +165,12 @@ SELECT * FROM private.atoms LIMIT 1;
 
 باید خطای `permission denied for table atoms` (یا معادل RLS) بدهد.
 
-سوم، اطمینان از دسترسی anon فقط از طریق تابع:
+سوم، اطمینان از دسترسی anon فقط از طریق تابع. توجه: id پروژه باید به‌صورت **literal** پاس شود (همان‌طور که PWA با `VITE_AZURA_PROJECT_ID` این کار را می‌کند)، نه با sub-select روی `private.entities` — چون طبق تست دوم، anon حق خواندن مستقیم `private.*` را ندارد:
 
 ```sql
 SET ROLE anon;
 SELECT public_serving.get_project_dossier(
-    (SELECT entity_id FROM private.entities
-     WHERE canonical_name = 'Azura Beach Residences')
+    '22222222-2100-0000-0000-000000000001'::uuid  -- VITE_AZURA_PROJECT_ID
 );
 ```
 

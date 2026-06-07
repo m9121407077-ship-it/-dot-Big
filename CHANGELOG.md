@@ -6,6 +6,14 @@ The format follows the principle that each release represents a meaningful miles
 
 -----
 
+## P2.G1 — Dot Dossier API
+
+- Added `private.verdicts` table (operator verdicts; RLS enabled, deny-by-default for anon/authenticated — written only by service_role).
+- Added `public_serving.get_project_dossier(p_project_id uuid)` — a `SECURITY DEFINER` read-only RPC composing the buyer-side dossier JSON (project, verdict, question_backs, ownership_chain) server-side; `EXECUTE` granted to `anon` and `authenticated` only.
+- Seeded the Azura verdict row (`حساس به توقف` / `enhanced_diligence_required`), resolved by canonical name rather than a hardcoded UUID.
+
+-----
+
 ## [0.1.0] — 2026-06-06 — Azura Vertical Slice Complete
 
 This release marks the completion of Phase 1 — the Azura Beach Residences vertical slice — and closes all nine gates of the locked green-light path.
