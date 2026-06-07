@@ -201,7 +201,7 @@ framework حقوقی escrow کاملاً قوی و مستند است: RD 30/2018
 
 ## بخش چهاردهم — نکات همپوشانی با Prism و bridge آینده
 
-این پرونده تنها وقتی کامل می‌شود که bridge بین Prism SQLite (که L0 و L1 اتم‌ها را به‌عنوان source of truth دارد) و Prism on Postgres Postgres (که اتم‌های L2 و L2.5 را در این پرونده ثبت کرده) ساخته شود. در حال حاضر، اتم‌های L0 (مثل ماده ۲۶۷، RD 30/2018، RD 79/2025) به‌صورت mirror references در Postgres نشسته‌اند، نه به‌صورت sync مستقیم از SQLite. این یک ضعف موقت است که بعد از G9 و شروع کار روی bridge برطرف می‌شود.
+این پرونده تنها وقتی کامل می‌شود که bridge بین Prism SQLite (که L0 و L1 اتم‌ها را به‌عنوان source of truth دارد) و Prism on Postgres (که اتم‌های L2 و L2.5 را در این پرونده ثبت کرده) ساخته شود. در حال حاضر، اتم‌های L0 (مثل ماده ۲۶۷، RD 30/2018، RD 79/2025) به‌صورت mirror references در Postgres نشسته‌اند، نه به‌صورت sync مستقیم از SQLite. این یک ضعف موقت است که بعد از G9 و شروع کار روی bridge برطرف می‌شود.
 
 از منظر اپراتور، این یعنی برای claims L0 (یعنی framework حقوقی)، در حال حاضر این پرونده و master reference قابل‌اعتماد است، ولی برای تأیید قطعی هر claim حقوقی، رجوع به source of truth در SQLite (یعنی repo `dot-internal-decision-pack`) توصیه می‌شود تا زمانی که bridge ساخته شود.
 
