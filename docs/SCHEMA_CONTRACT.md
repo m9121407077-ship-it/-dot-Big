@@ -95,3 +95,9 @@ If a view’s column set changes, `src/lib/cockpit.ts` must be updated correspon
 ## PostgREST notes
 
 PostgREST caches the schema. When views are added or grants change, PostgREST may need an explicit `NOTIFY pgrst, 'reload schema';` to pick up the changes. Migrations that change the API surface should include this notification at the end.
+
+## Entity soft-merge mechanism
+
+The `merged_into` column on `private.entities` lets us deduplicate entities without violating the atom append-only constraint. A non-canonical entity is marked with `merged_into = <canonical_uuid>` (plus `merged_at` and `merged_reason`); public views filter `merged_into IS NULL` so merged aliases never appear; and the `dossier(uuid)` RPC absorbs atoms (and missingness/tickets) from merged orphans into the canonical entity’s dossier via `private.entity_with_merged_orphans(p_entity_id)`. Atoms themselves stay attached to their original `entity_id`, preserving the append-only audit trail and the Merkle chain.
+
+The `_meta` `entity_type` prefix (underscore prefix) is reserved for operational markers that are not real-world entities (research scopes, internal-reference jurisdictions, etc.). Cockpit views filter `entity_type NOT LIKE '\_%'` so these markers are hidden from the cockpit groups while remaining in the database for audit.
