@@ -1,0 +1,361 @@
+{
+  "document": {
+    "type": "future_tasks_specification",
+    "version": "1.0",
+    "created_at": "2026-06-08",
+    "author": "Claude (architect)",
+    "purpose": "Reference contract for two specified-pending-execution tasks. When execution begins, this document is the binding contract: approach, scope, stop conditions, verification. The approach for each task was researched against the actual Prism schema and Lovable codebase state at creation time.",
+    "scope_note": "Created per H's request 2026-06-08 after G3a (L0 soft merge) was prioritized as the first task. These two tasks are NOT in scope of the G3a migration; they execute independently when prioritized.",
+    "context_refs": [
+      "STATE_OF_AFFAIRS_2026_06_07_2.md",
+      "PRISM_KNOWLEDGE_BASE_2026_06_07.json",
+      "docs/SCHEMA_CONTRACT.md",
+      "supabase/migrations/20260608060000_g3a_l0_soft_merge.sql (when applied)"
+    ]
+  },
+
+  "tasks": [
+    {
+      "id": "T2",
+      "title_fa": "پارسی‌سازی tab پیگیری",
+      "title_en": "Persian-ize the Follow-up tab",
+      "status": "specified_pending_execution",
+      "priority_order": 2,
+      "depends_on": ["G3a applied"],
+      "blocks": [],
+
+      "problem_statement": "The پیگیری (Follow-up) tab displays ticket information with English field names and English criterion names, while the rest of the app is in Persian. Operators using the Persian UI see English labels for criterion, priority, status, type. This breaks the Persian operator experience and is the second of three completeness gaps H identified on 2026-06-08.",
+
+      "user_visible_symptom": "Open پیگیری tab. Tickets show English labels like 'priority: high', 'criterion: parent_company_disclosure'. Operators must mentally translate to act on tickets.",
+
+      "research_findings": [
+        {
+          "finding": "private.criteria.name_persian is populated",
+          "evidence": "State of Affairs section 1.7: 'name_persian text -- bilingual support'; knowledge base confirms criteria table has name_persian column"
+        },
+        {
+          "finding": "public.tickets view currently does not expose criterion_name_persian",
+          "evidence": "Migration 20260608040000 (M4+M5) added public.tickets as a passthrough from private.tickets; no join with private.criteria"
+        },
+        {
+          "finding": "OpenTab.tsx renders rows with Object.entries(row).map(...)",
+          "evidence": "Current OpenTab.tsx (post-G3a) dumps every field of each ticket row, English-named columns appear as-is"
+        },
+        {
+          "finding": "The original ticket question/notes text was researched in English",
+          "evidence": "private.tickets data inserted via bridge from English-language research runs; translating the original question text is a separate batch task"
+        }
+      ],
+
+      "design_decisions": [
+        {
+          "decision": "Add criterion_name_persian to public.tickets view (single source of truth at the view layer)",
+          "alternative_rejected": "Client-side mapping table (English→Persian) — rejected because data already has name_persian; mapping at view is more honest and avoids drift"
+        },
+        {
+          "decision": "Static UI labels (priority, status, type) are translated in OpenTab.tsx component (UI layer)",
+          "rationale": "These are not data; they are UI chrome. Belongs in the component."
+        },
+        {
+          "decision": "Original ticket question text remains in English in v1",
+          "rationale": "Translation is a separate batch task. For v1, the criterion_name_persian label provides Persian context; the English question text appears below it with a Persian framing phrase ('سؤال باز:')."
+        },
+        {
+          "decision": "Fallback when name_persian is null: use English name with a visual marker",
+          "rationale": "Defensive; surfaces missing translations rather than failing silently"
+        }
+      ],
+
+      "approach": {
+        "summary": "Two diffs: (a) a small migration updates public.tickets view to JOIN private.criteria and add criterion_name_persian + criterion_section_persian columns; (b) OpenTab.tsx is updated to use the new Persian column as the primary card label and to translate static labels.",
+        "migration_file_name": "supabase/migrations/20260609010000_t2_tickets_persian_view.sql",
+        "migration_sketch": "CREATE OR REPLACE VIEW public.tickets AS SELECT t.*, c.name_persian AS criterion_name_persian, c.section AS criterion_section FROM private.question_back_tickets t LEFT JOIN private.criteria c ON c.criterion_id = t.criterion_id WHERE t.status <> 'resolved'; (exact column list to be confirmed against current view definition during execution)",
+        "ui_changes": "In src/components/tabs/OpenTab.tsx: (1) replace the raw Object.entries dump with structured render that puts criterion_name_persian as card title, (2) translate label strings ('priority' → 'اولویت', 'status' → 'وضعیت', 'type' → 'نوع'), (3) wrap English question text in a Persian frame: 'سؤال باز: {english_text}'."
+      },
+
+      "scope_in": [
+        "Add criterion_name_persian and criterion_section to public.tickets view",
+        "Update OpenTab.tsx to use Persian labels and Persian criterion name",
+        "Add fallback when name_persian is null",
+        "Keep ticket count and structure unchanged"
+      ],
+
+      "scope_out": [
+        "Translating the original English question/notes text content (separate batch task)",
+        "Adding new ticket fields beyond Persian labeling",
+        "UI redesign of the ticket card (only label/text changes)",
+        "Changes to other tabs"
+      ],
+
+      "implementation_steps": [
+        {
+          "step": 1,
+          "action": "Inspect current definition of public.tickets via SELECT pg_get_viewdef('public.tickets'::regclass, true);",
+          "owner": "Claude Code"
+        },
+        {
+          "step": 2,
+          "action": "Write migration that CREATE OR REPLACE VIEW public.tickets with the join + new columns, preserving all existing columns",
+          "owner": "Claude Code"
+        },
+        {
+          "step": 3,
+          "action": "PR for migration. Acceptance test: SELECT count(*) FROM public.tickets WHERE criterion_name_persian IS NOT NULL > 0",
+          "owner": "Claude Code"
+        },
+        {
+          "step": 4,
+          "action": "Lovable prompt (sent via chat assistant) that updates OpenTab.tsx with structured render + Persian labels + fallback. Use file-attachment pattern not inline JSX (markdown rendering strips tags).",
+          "owner": "Chat assistant + Lovable + H"
+        },
+        {
+          "step": 5,
+          "action": "Verify on preview: open پیگیری tab, confirm criterion names in Persian, static labels in Persian, ticket count = previous count",
+          "owner": "H"
+        }
+      ],
+
+      "stop_conditions": [
+        "OpenTab displays criterion_name_persian as primary card label (not English name)",
+        "Static labels (priority, status, type) are in Persian",
+        "Original English question text appears with a Persian framing phrase, not bare English",
+        "Ticket count in پیگیری unchanged from before the change (no rows lost)",
+        "When criterion has no Persian name, fallback marker is visible (not silent failure)"
+      ],
+
+      "verification_queries": [
+        {
+          "name": "criterion_persian_populated",
+          "sql": "SELECT count(*) FROM public.tickets WHERE criterion_name_persian IS NOT NULL;",
+          "expected": "should be > 0; ideally equal to ticket count if all criteria have Persian names"
+        },
+        {
+          "name": "ticket_count_unchanged",
+          "sql": "SELECT count(*) FROM public.tickets;",
+          "expected": "same as before migration (38 at time of spec, or whatever the count was)"
+        },
+        {
+          "name": "view_columns_complete",
+          "sql": "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='tickets' ORDER BY ordinal_position;",
+          "expected": "all original columns plus criterion_name_persian and criterion_section"
+        }
+      ],
+
+      "risks": [
+        {
+          "risk": "Some criteria may have null name_persian",
+          "mitigation": "Fallback in UI: show English name with visual marker (e.g., italic + question mark). Also flag as a data-cleanup task."
+        },
+        {
+          "risk": "View change may break PostgREST schema cache",
+          "mitigation": "Migration ends with NOTIFY pgrst, 'reload schema';"
+        },
+        {
+          "risk": "Tickets that have null criterion_id (rare but possible) will have null criterion_name_persian",
+          "mitigation": "UI fallback: show 'بدون معیار مشخص' label"
+        }
+      ],
+
+      "estimated_effort": "1 session, ~45 min: 15 min migration write + apply, 30 min Lovable prompt + verification"
+    },
+
+    {
+      "id": "T3",
+      "title_fa": "حلقه‌ی بسته‌ی پیگیری: ثبت نتیجه و اتم‌سازی",
+      "title_en": "Closed-loop follow-up: submit result and atomize",
+      "status": "specified_pending_execution",
+      "priority_order": 3,
+      "depends_on": ["G3a applied", "T2 recommended but not strictly required"],
+      "blocks": [],
+
+      "problem_statement": "The cockpit currently presents tickets as read-only items. Operators can see what is missing but cannot record what they found. Per H 2026-06-08: 'بهتر است جایی برای وارد کردن نتیجه پیگیری و ارسال ان در پشت صحنه به سوپا بیش جهت اتمایزینگ و توزیع اتم‌ها در جای مناسب وجود داشته باشد.' The cockpit must close the loop: operator researches the answer, submits the result, the result is inserted as a new atom in the knowledge graph and properly attributed.",
+
+      "user_visible_symptom": "Ticket cards in پیگیری have no input mechanism. The operator must use another system (or do nothing) to record results, which means the knowledge graph never receives the answer.",
+
+      "research_findings": [
+        {
+          "finding": "private.atoms is append-only via M2 triggers but INSERT is allowed",
+          "evidence": "Migration 20260608030000 (M2) installs BEFORE UPDATE/DELETE triggers; BEFORE INSERT is not blocked"
+        },
+        {
+          "finding": "M3 chain_hash is computed automatically via BEFORE INSERT trigger",
+          "evidence": "Migration 20260608020000 (M3) installs atom_compute_chain_hash as BEFORE INSERT trigger; new atoms get correct chain hash without manual computation"
+        },
+        {
+          "finding": "atoms.source_id is NOT NULL; every atom must reference a source row in private.sources",
+          "evidence": "State of Affairs section 1.4: 'source_id uuid NOT NULL'"
+        },
+        {
+          "finding": "private.question_back_tickets has a status column; updating to 'resolved' is allowed (tickets are not append-only)",
+          "evidence": "Tickets table not protected by M2 triggers (only atoms are)"
+        },
+        {
+          "finding": "Anon role currently has SELECT on public.* views but EXECUTE permission on RPCs is controlled per-function",
+          "evidence": "Migration 20260608050000 (M6) grants anon SELECT on public.* + EXECUTE on public.dossier. New RPCs require explicit GRANT EXECUTE."
+        }
+      ],
+
+      "design_decisions": [
+        {
+          "decision": "Use a single RPC function public.submit_ticket_result that wraps all four operations (find-or-insert source, insert atom, mark ticket resolved, return atom_id)",
+          "rationale": "Atomicity. If any step fails, the whole submission rolls back. Single network call from UI. Single permission to grant."
+        },
+        {
+          "decision": "Find-or-insert source by URL: if a source with that URL exists, reuse; otherwise insert new",
+          "rationale": "Avoid source table pollution. The operator-supplied URL is the natural unique key for source dedup."
+        },
+        {
+          "decision": "Operator supplies source_class explicitly (default = 2 'secondary')",
+          "rationale": "Trust weight matters for downstream evidence aggregation. Operator knows context. Default 'secondary' (not 'primary') is conservative."
+        },
+        {
+          "decision": "Language is detected from operator input or defaults to 'fa' (Persian)",
+          "rationale": "Persian operator most likely writes Persian. Detection by simple character check if needed."
+        },
+        {
+          "decision": "On successful submission, the resolved ticket disappears from the پیگیری tab (filter on status <> 'resolved')",
+          "rationale": "Operator gets visual confirmation; queue shrinks; resolved tickets remain in DB for audit"
+        },
+        {
+          "decision": "Anon EXECUTE permission is granted in solo phase",
+          "rationale": "Consistent with M6 solo-phase access model. When second user is added, this is revoked along with other anon access."
+        }
+      ],
+
+      "approach": {
+        "summary": "Three diffs: (a) a migration creates public.submit_ticket_result RPC function with full body and GRANT EXECUTE to anon; (b) OpenTab.tsx ticket card gets an inline expandable form (textarea + URL field + submit button); (c) on success, the ticket is removed from the list optimistically.",
+        "migration_file_name": "supabase/migrations/20260609020000_t3_ticket_writeback_rpc.sql",
+        "rpc_signature": "public.submit_ticket_result(p_ticket_id uuid, p_result_text text, p_source_url text, p_source_class int DEFAULT 2, p_language text DEFAULT 'fa') RETURNS jsonb",
+        "rpc_returns": "{ ticket_id, atom_id, source_id, status: 'resolved' }",
+        "rpc_body_sketch": "BEGIN: SELECT entity_id, criterion_id INTO ... FROM private.question_back_tickets WHERE ticket_id = p_ticket_id AND status <> 'resolved'; IF NOT FOUND raise; SELECT source_id INTO v_source_id FROM private.sources WHERE url = p_source_url LIMIT 1; IF NOT FOUND INSERT INTO private.sources(url, class, language) VALUES (...) RETURNING source_id INTO v_source_id; INSERT INTO private.atoms(entity_id, criterion_id, claim, source_id, source_class, language, valid_from, status) VALUES (v_entity_id, v_criterion_id, p_result_text, v_source_id, p_source_class, p_language, now(), 'active') RETURNING atom_id INTO v_atom_id; UPDATE private.question_back_tickets SET status='resolved', resolved_at=now(), resolved_atom_id=v_atom_id WHERE ticket_id=p_ticket_id; RETURN jsonb_build_object('ticket_id', p_ticket_id, 'atom_id', v_atom_id, 'source_id', v_source_id, 'status', 'resolved'); END;",
+        "rpc_security": "SECURITY DEFINER (runs as owner so it can write to private.*); SET search_path = private, public, pg_temp; GRANT EXECUTE TO anon (solo phase) — revoke when second user added.",
+        "ui_changes": "In OpenTab.tsx: ticket card gets a toggle button ('ثبت نتیجه'); expanded panel contains textarea (label 'نتیجه پیگیری'), URL input (label 'منبع'), optional source class select, submit button. On submit: call supabase.rpc('submit_ticket_result', {...}); on success: invalidate tickets query (TanStack Query); show toast 'ثبت شد'; on failure: show error and keep form open."
+      },
+
+      "scope_in": [
+        "Create public.submit_ticket_result RPC",
+        "Grant EXECUTE to anon (solo phase)",
+        "Add inline form UI to ticket cards",
+        "Optimistic UI update: ticket disappears on success",
+        "Error handling: surface backend errors to operator"
+      ],
+
+      "scope_out": [
+        "Multi-step research workflow (just single-shot submission)",
+        "Source enrichment beyond URL + class (publisher detection, etc.)",
+        "Confidence scoring",
+        "Operator approval workflow (operator IS the trusted submitter in solo phase)",
+        "Bulk submission (one ticket at a time)",
+        "Edit/undo after submission (resolved is final; operator can submit a corrective atom later but the original ticket stays resolved)"
+      ],
+
+      "implementation_steps": [
+        {
+          "step": 1,
+          "action": "Inspect private.sources schema: columns, constraints. Confirm find-by-url pattern works.",
+          "owner": "Claude Code"
+        },
+        {
+          "step": 2,
+          "action": "Inspect private.question_back_tickets schema: confirm columns status, resolved_at, resolved_atom_id exist (add via migration if missing).",
+          "owner": "Claude Code"
+        },
+        {
+          "step": 3,
+          "action": "Write migration that creates public.submit_ticket_result RPC with full body + GRANT EXECUTE TO anon + NOTIFY pgrst.",
+          "owner": "Claude Code"
+        },
+        {
+          "step": 4,
+          "action": "PR for migration. Acceptance tests T3.V1–T3.V4 (see verification_queries).",
+          "owner": "Claude Code"
+        },
+        {
+          "step": 5,
+          "action": "Lovable prompt: update OpenTab.tsx with form + supabase.rpc call + optimistic update + error handling. File-attachment pattern.",
+          "owner": "Chat assistant + Lovable + H"
+        },
+        {
+          "step": 6,
+          "action": "Verification on preview: pick one open ticket, fill form, submit, confirm: (a) toast appears, (b) ticket disappears, (c) new atom queryable in DB, (d) ticket status='resolved' in DB.",
+          "owner": "H"
+        }
+      ],
+
+      "stop_conditions": [
+        "RPC public.submit_ticket_result exists and is callable from supabase JS client",
+        "Operator can open form in any open ticket card",
+        "Submission with valid inputs returns success and removes the ticket from the visible list",
+        "A new atom appears in private.atoms with claim = submitted text, correct entity_id and criterion_id from the ticket",
+        "The new atom has a non-null chain_hash computed by the M3 trigger",
+        "private.verify_atom_chain_integrity() still returns clean after submission (chain not broken)",
+        "The original ticket row in private.question_back_tickets has status='resolved' and resolved_atom_id = the new atom_id",
+        "Form validates: empty result or empty URL is rejected with Persian error message"
+      ],
+
+      "verification_queries": [
+        {
+          "name": "T3.V1_rpc_exists",
+          "sql": "SELECT count(*) FROM pg_proc WHERE proname='submit_ticket_result' AND pronamespace = (SELECT oid FROM pg_namespace WHERE nspname='public');",
+          "expected": "1"
+        },
+        {
+          "name": "T3.V2_anon_can_execute",
+          "sql": "SELECT has_function_privilege('anon', 'public.submit_ticket_result(uuid,text,text,int,text)', 'EXECUTE');",
+          "expected": "true (solo phase only)"
+        },
+        {
+          "name": "T3.V3_submission_creates_atom",
+          "sql": "After test submission, run: SELECT count(*) FROM private.atoms WHERE claim = '<test text used in submission>';",
+          "expected": "1"
+        },
+        {
+          "name": "T3.V4_chain_integrity_preserved",
+          "sql": "SELECT * FROM private.verify_atom_chain_integrity();",
+          "expected": "all rows show is_valid=true; no broken chain"
+        },
+        {
+          "name": "T3.V5_ticket_resolved",
+          "sql": "After test submission, run: SELECT status, resolved_atom_id FROM private.question_back_tickets WHERE ticket_id = '<test ticket id>';",
+          "expected": "status='resolved', resolved_atom_id = the new atom_id"
+        }
+      ],
+
+      "risks": [
+        {
+          "risk": "Operator submits low-quality or wrong data; permanent atom in append-only store",
+          "mitigation": "Operator is single trusted user in solo phase. If wrong atom is inserted, a corrective superseding atom can be added later (no UPDATE/DELETE, but architecture supports supersede via valid_to + new atom). Document this in operator guidance."
+        },
+        {
+          "risk": "find-or-insert source race condition (two concurrent submissions of same URL)",
+          "mitigation": "Wrap in transaction with appropriate locking. Or accept rare duplicate source rows; deduplication is a separate background task."
+        },
+        {
+          "risk": "M3 chain_hash computation depends on ORDER BY recorded_at — if two atoms inserted in same millisecond they may race",
+          "mitigation": "Use timestamptz with microsecond precision (Postgres default); collisions are extremely rare. If race detected via integrity check failure, post-hoc fix is possible (regenerate chain hashes)."
+        },
+        {
+          "risk": "Anon EXECUTE permission is broad; if anon key leaks, anyone could submit fake atoms",
+          "mitigation": "Accept in solo phase (single user, low exposure). When 2nd user added, revoke anon EXECUTE in same PR that re-enables AuthGate. Document this in SCHEMA_CONTRACT.md transition checklist."
+        },
+        {
+          "risk": "Form UX could confuse operator into submitting wrong ticket",
+          "mitigation": "Form is inline (attached to specific ticket card), labeled with criterion_name_persian (Persian context). Submission shows confirmation toast with ticket criterion name."
+        }
+      ],
+
+      "estimated_effort": "1 session, ~90 min: 30 min migration (RPC body + tests), 45 min Lovable prompt + iteration, 15 min H verification"
+    }
+  ],
+
+  "execution_order_when_prioritized": [
+    "G3a (L0 soft merge) — separate work, in progress",
+    "T2 (Persian-ize follow-up tab)",
+    "T3 (closed-loop ticket write-back)"
+  ],
+
+  "notes": {
+    "why_t2_before_t3": "T2 is smaller (one view + UI labels) and improves the operator's ability to read tickets correctly before they start answering them. Doing T3 first would mean the operator sees English labels while submitting, increasing chance of mismatches.",
+    "post_t3_consideration": "Once T3 is live, the data corpus will grow via operator submissions. Consider a 'recently submitted' indicator in the cockpit so operator can see their contributions. Not in T3 scope; future enhancement."
+  }
+}
