@@ -1,0 +1,51 @@
+name: Publish PRID-X Pilot
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/pridx-pages.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pridx-pages-production
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout published files
+        uses: actions/checkout@v6
+        with:
+          ref: gh-pages
+      - name: Enable and configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - name: Prepare site
+        run: |
+          mkdir -p _site
+          cp index.html app.js style.css .nojekyll _site/
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Record successful deployment
+        run: |
+          printf '{"status":"deployed","url":"%s","commit":"%s","deployed_at":"%s"}\n' "${{ steps.deployment.outputs.page_url }}" "${{ github.sha }}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > DEPLOY_OK.json
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add DEPLOY_OK.json
+          git commit -m "Record successful PRID-X deployment" || true
+          git push origin HEAD:gh-pages
