@@ -1,0 +1,13 @@
+{
+  "run_id": 32521445279,
+  "run_attempt": 1,
+  "commit": "2a7397b0d9f621611d43c79f77cc3ffa6258f8b2",
+  "branch": "atlas/divar-official-extract-v1",
+  "source": "divarofficial/real_estate_ads",
+  "artifacts": [
+    "qarain-divar-official-reports",
+    "qarain-divar-official-clean-full"
+  ],
+  "raw_public_dataset_only": true,
+  "qarain_private_data_included": false
+}
