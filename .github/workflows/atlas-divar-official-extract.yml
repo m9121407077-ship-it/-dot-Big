@@ -1,0 +1,87 @@
+name: Atlas Divar Official Full Extract
+
+on:
+  push:
+    branches:
+      - atlas/divar-official-extract-v1
+    paths:
+      - .github/workflows/atlas-divar-official-extract.yml
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout isolated public-data branch
+        uses: actions/checkout@v4
+        with:
+          ref: atlas/divar-official-extract-v1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install data stack
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests duckdb pyarrow
+
+      - name: Download verify and process every row
+        env:
+          DIVAR_WORKDIR: ${{ runner.temp }}/divar_work
+          PYTHONUNBUFFERED: '1'
+        run: |
+          python ops/atlas_divar/extract_divar_official.py | tee $RUNNER_TEMP/divar_extract.log
+          du -sh $RUNNER_TEMP/divar_work/out/*
+
+      - name: Publish small auditable receipt to branch
+        env:
+          DIVAR_WORKDIR: ${{ runner.temp }}/divar_work
+        run: |
+          DEST="atlas_outputs/divar_official/${GITHUB_RUN_ID}"
+          mkdir -p "$DEST"
+          cp -R "$DIVAR_WORKDIR/out/reports/." "$DEST/"
+          cp "$RUNNER_TEMP/divar_extract.log" "$DEST/divar_extract.log"
+          python - <<'PY'
+          import json, os, pathlib
+          p=pathlib.Path('atlas_outputs/divar_official')/os.environ['GITHUB_RUN_ID']/'RUN_RECEIPT.json'
+          p.write_text(json.dumps({
+            'run_id': int(os.environ['GITHUB_RUN_ID']),
+            'run_attempt': int(os.environ['GITHUB_RUN_ATTEMPT']),
+            'commit': os.environ['GITHUB_SHA'],
+            'branch': 'atlas/divar-official-extract-v1',
+            'source': 'divarofficial/real_estate_ads',
+            'artifacts': ['qarain-divar-official-reports','qarain-divar-official-clean-full'],
+            'raw_public_dataset_only': True,
+            'qarain_private_data_included': False
+          },ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+          git config user.name 'qarain-atlas-bot'
+          git config user.email 'qarain-atlas-bot@users.noreply.github.com'
+          git add -- "$DEST"
+          git commit -m "atlas: publish Divar extraction receipt run ${GITHUB_RUN_ID}"
+          git push origin HEAD:atlas/divar-official-extract-v1
+
+      - name: Upload compact reports artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qarain-divar-official-reports
+          path: |
+            ${{ runner.temp }}/divar_work/out/reports/**
+            ${{ runner.temp }}/divar_extract.log
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 6
+
+      - name: Upload complete clean dataset artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qarain-divar-official-clean-full
+          path: ${{ runner.temp }}/divar_work/out/clean_full/**
+          retention-days: 3
+          if-no-files-found: error
+          compression-level: 0
