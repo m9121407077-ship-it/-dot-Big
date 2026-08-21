@@ -30,13 +30,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests duckdb pyarrow
 
-      - name: Download verify and process every row
+      - name: Download verify clean and report every row
         env:
           DIVAR_WORKDIR: ${{ runner.temp }}/divar_work
           PYTHONUNBUFFERED: '1'
         run: |
-          python ops/atlas_divar/extract_divar_official.py | tee $RUNNER_TEMP/divar_extract.log
+          set -o pipefail
+          python ops/atlas_divar/extract_divar_official_v2.py 2>&1 | tee $RUNNER_TEMP/divar_extract.log
           du -sh $RUNNER_TEMP/divar_work/out/*
+          test -f $RUNNER_TEMP/divar_work/out/reports/manifest.json
+          test -f $RUNNER_TEMP/divar_work/out/reports/quality_report.json
+          grep -q '"actual_rows": 1000000' $RUNNER_TEMP/divar_work/out/reports/manifest.json
 
       - name: Publish small auditable receipt to branch
         env:
@@ -48,6 +52,7 @@ jobs:
           cp "$RUNNER_TEMP/divar_extract.log" "$DEST/divar_extract.log"
           python - <<'PY'
           import json, os, pathlib
+          manifest=json.loads((pathlib.Path(os.environ['DIVAR_WORKDIR'])/'out/reports/manifest.json').read_text(encoding='utf-8'))
           p=pathlib.Path('atlas_outputs/divar_official')/os.environ['GITHUB_RUN_ID']/'RUN_RECEIPT.json'
           p.write_text(json.dumps({
             'run_id': int(os.environ['GITHUB_RUN_ID']),
@@ -55,15 +60,19 @@ jobs:
             'commit': os.environ['GITHUB_SHA'],
             'branch': 'atlas/divar-official-extract-v1',
             'source': 'divarofficial/real_estate_ads',
+            'actual_rows': manifest['checks']['actual_rows'],
+            'actual_source_columns': manifest['checks']['actual_source_columns'],
+            'hashes_verified': manifest['checks']['parquet_hashes_verified'],
+            'rows_removed_clean_full': manifest['cleaning']['rows_removed'],
             'artifacts': ['qarain-divar-official-reports','qarain-divar-official-clean-full'],
-            'raw_public_dataset_only': True,
+            'public_dataset_only': True,
             'qarain_private_data_included': False
           },ensure_ascii=False,indent=2),encoding='utf-8')
           PY
           git config user.name 'qarain-atlas-bot'
           git config user.email 'qarain-atlas-bot@users.noreply.github.com'
           git add -- "$DEST"
-          git commit -m "atlas: publish Divar extraction receipt run ${GITHUB_RUN_ID}"
+          git commit -m "atlas: publish verified Divar extraction receipt run ${GITHUB_RUN_ID}"
           git push origin HEAD:atlas/divar-official-extract-v1
 
       - name: Upload compact reports artifact
